@@ -9,21 +9,17 @@ use std::sync::LazyLock;
 // Compiled Regex Patterns (thread-safe, compile-once)
 // ============================================================================
 
-static RE_PREMIUM_REQUESTS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"Total usage est:\s*(\d+)\s*Premium").unwrap()
-});
+static RE_PREMIUM_REQUESTS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"Total usage est:\s*(\d+)\s*Premium").unwrap());
 
-static RE_API_TIME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"API time spent:\s*((?:\d+m\s*)?\d+\.?\d*s?)").unwrap()
-});
+static RE_API_TIME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"API time spent:\s*((?:\d+m\s*)?\d+\.?\d*s?)").unwrap());
 
-static RE_SESSION_TIME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"Total session time:\s*((?:\d+m\s*)?\d+\.?\d*s?)").unwrap()
-});
+static RE_SESSION_TIME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"Total session time:\s*((?:\d+m\s*)?\d+\.?\d*s?)").unwrap());
 
-static RE_CODE_CHANGES: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"Total code changes:\s*\+(\d+)\s*-(\d+)").unwrap()
-});
+static RE_CODE_CHANGES: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"Total code changes:\s*\+(\d+)\s*-(\d+)").unwrap());
 
 static RE_MODEL_LINE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -198,14 +194,12 @@ impl SessionTokenStats {
         self.total_elapsed_seconds += stats.elapsed_seconds;
 
         if let Some(model) = &stats.model {
-            self.estimated_cost_usd += self.estimate_mission_cost(
-                stats.tokens_in,
-                stats.tokens_out,
-                model
-            );
+            self.estimated_cost_usd +=
+                self.estimate_mission_cost(stats.tokens_in, stats.tokens_out, model);
         }
 
-        let entry = self.by_mission_type
+        let entry = self
+            .by_mission_type
             .entry(stats.mission_type.clone())
             .or_default();
         entry.count += 1;
@@ -227,7 +221,7 @@ impl SessionTokenStats {
         };
 
         (tokens_in as f64 / 1_000_000.0) * input_cost
-                 + (tokens_out as f64 / 1_000_000.0) * output_cost
+            + (tokens_out as f64 / 1_000_000.0) * output_cost
     }
 
     pub fn cost_per_issue(&self, issues_resolved: u32) -> Option<f64> {
@@ -259,16 +253,34 @@ impl SessionTokenStats {
         self.missions_completed > 0 || self.missions_failed > 0
     }
 
-    pub fn format_summary(&self, initial_issues: usize, final_issues: usize, duration_secs: f64) -> String {
+    pub fn format_summary(
+        &self,
+        initial_issues: usize,
+        final_issues: usize,
+        duration_secs: f64,
+    ) -> String {
         use std::fmt::Write;
         let mut out = String::new();
-        
-        writeln!(out, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━").unwrap();
+
+        writeln!(
+            out,
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+        .unwrap();
         writeln!(out, "SESSION SUMMARY").unwrap();
-        writeln!(out, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━").unwrap();
-        writeln!(out, "Missions:     {} completed, {} failed", self.missions_completed, self.missions_failed).unwrap();
+        writeln!(
+            out,
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "Missions:     {} completed, {} failed",
+            self.missions_completed, self.missions_failed
+        )
+        .unwrap();
         writeln!(out, "Duration:     {}", format_duration(duration_secs)).unwrap();
-        
+
         let issues_delta = final_issues as i32 - initial_issues as i32;
         let issues_str = if issues_delta < 0 {
             format!("{} → {} ({:+})", initial_issues, final_issues, issues_delta)
@@ -285,23 +297,29 @@ impl SessionTokenStats {
             let mut types: Vec<_> = self.by_mission_type.iter().collect();
             types.sort_by_key(|(_, s)| std::cmp::Reverse(s.tokens_in));
             for (mission_type, stats) in types {
-                writeln!(out, "  {} ({:>2}):  {:>6} in, {:>5} out | Premium: {}",
+                writeln!(
+                    out,
+                    "  {} ({:>2}):  {:>6} in, {:>5} out | Premium: {}",
                     truncate_and_pad(mission_type, 28),
                     stats.count,
                     format_tokens(stats.tokens_in),
                     format_tokens(stats.tokens_out),
                     stats.premium_requests
-                ).unwrap();
+                )
+                .unwrap();
             }
             writeln!(out).unwrap();
         }
 
-        writeln!(out, "Total: {} tokens in, {} tokens out",
+        writeln!(
+            out,
+            "Total: {} tokens in, {} tokens out",
             format_tokens(self.total_tokens_in),
             format_tokens(self.total_tokens_out)
-        ).unwrap();
+        )
+        .unwrap();
         writeln!(out, "Premium requests: {}", self.total_premium_requests).unwrap();
-        
+
         if self.estimated_cost_usd > 0.0 {
             writeln!(out, "Estimated cost: ${:.2}", self.estimated_cost_usd).unwrap();
         }
@@ -309,11 +327,16 @@ impl SessionTokenStats {
         if self.missions_completed > 0 && initial_issues > final_issues {
             let issues_resolved = initial_issues - final_issues;
             let premium_per_issue = self.total_premium_requests as f64 / issues_resolved as f64;
-            writeln!(out, "Avg premium requests per issue resolved: {:.2}", premium_per_issue).unwrap();
-            
+            writeln!(
+                out,
+                "Avg premium requests per issue resolved: {:.2}",
+                premium_per_issue
+            )
+            .unwrap();
+
             if let Some(cost_per_issue) = self.cost_per_issue(issues_resolved as u32) {
                 writeln!(out, "Cost per issue: ${:.2}", cost_per_issue).unwrap();
-                
+
                 let rating = self.efficiency_rating(issues_resolved as u32);
                 let rating_str = match rating {
                     EfficiencyRating::Excellent => "Excellent ✨",
@@ -322,13 +345,24 @@ impl SessionTokenStats {
                     EfficiencyRating::Critical => "Critical ❌",
                 };
                 writeln!(out, "Efficiency: {}", rating_str).unwrap();
-                
+
                 if matches!(rating, EfficiencyRating::Poor | EfficiencyRating::Critical) {
                     writeln!(out).unwrap();
-                    writeln!(out, "⚠️  WARNING: Cost efficiency is {}.", 
-                        if matches!(rating, EfficiencyRating::Critical) { "critically low" } else { "below target" }
-                    ).unwrap();
-                    writeln!(out, "   Consider reviewing mission selection or surface policy.").unwrap();
+                    writeln!(
+                        out,
+                        "⚠️  WARNING: Cost efficiency is {}.",
+                        if matches!(rating, EfficiencyRating::Critical) {
+                            "critically low"
+                        } else {
+                            "below target"
+                        }
+                    )
+                    .unwrap();
+                    writeln!(
+                        out,
+                        "   Consider reviewing mission selection or surface policy."
+                    )
+                    .unwrap();
                 }
             }
         }
@@ -340,16 +374,19 @@ impl SessionTokenStats {
 fn parse_token_count(s: &str) -> u64 {
     let s = s.trim().to_lowercase();
     let (num_str, multiplier) = if s.ends_with('m') {
-        (&s[..s.len()-1], 1_000_000.0)
+        (&s[..s.len() - 1], 1_000_000.0)
     } else if s.ends_with('k') {
-        (&s[..s.len()-1], 1_000.0)
+        (&s[..s.len() - 1], 1_000.0)
     } else if s.ends_with('b') {
-        (&s[..s.len()-1], 1_000_000_000.0)
+        (&s[..s.len() - 1], 1_000_000_000.0)
     } else {
         (s.as_str(), 1.0)
     };
 
-    num_str.parse::<f64>().map(|n| (n * multiplier) as u64).unwrap_or(0)
+    num_str
+        .parse::<f64>()
+        .map(|n| (n * multiplier) as u64)
+        .unwrap_or(0)
 }
 
 fn parse_time_str(s: &str) -> f64 {
@@ -490,7 +527,7 @@ Total code changes: +10 -9 Breakdown by AI model:
     #[test]
     fn test_session_stats_aggregation() {
         let mut stats = SessionTokenStats::default();
-        
+
         let mission1 = MissionTokenStats {
             mission_type: "CreateMissingBindings".to_string(),
             tokens_in: 1_000_000,
@@ -500,7 +537,7 @@ Total code changes: +10 -9 Breakdown by AI model:
             model: Some("claude-sonnet-4".to_string()),
             elapsed_seconds: 60.0,
         };
-        
+
         let mission2 = MissionTokenStats {
             mission_type: "CreateMissingBindings".to_string(),
             tokens_in: 1_500_000,
@@ -510,7 +547,7 @@ Total code changes: +10 -9 Breakdown by AI model:
             model: Some("claude-sonnet-4".to_string()),
             elapsed_seconds: 90.0,
         };
-        
+
         let mission3 = MissionTokenStats {
             mission_type: "FixRegressionFromGateFailure".to_string(),
             tokens_in: 3_000_000,
@@ -520,11 +557,11 @@ Total code changes: +10 -9 Breakdown by AI model:
             model: Some("claude-opus-4.5".to_string()),
             elapsed_seconds: 120.0,
         };
-        
+
         stats.record_mission(&mission1, true);
         stats.record_mission(&mission2, true);
         stats.record_mission(&mission3, false);
-        
+
         assert_eq!(stats.missions_completed, 2);
         assert_eq!(stats.missions_failed, 1);
         assert_eq!(stats.total_tokens_in, 5_500_000);
@@ -532,6 +569,9 @@ Total code changes: +10 -9 Breakdown by AI model:
         assert_eq!(stats.total_premium_requests, 6);
         assert_eq!(stats.by_mission_type.len(), 2);
         assert_eq!(stats.by_mission_type["CreateMissingBindings"].count, 2);
-        assert_eq!(stats.by_mission_type["FixRegressionFromGateFailure"].count, 1);
+        assert_eq!(
+            stats.by_mission_type["FixRegressionFromGateFailure"].count,
+            1
+        );
     }
 }

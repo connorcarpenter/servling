@@ -4,7 +4,9 @@ use std::sync::Mutex;
 
 use anyhow::{bail, Result};
 
-use crate::core::{Servling, LLMRequest, LLMResponse, RunnerInvocation, OutcomeClassification, build_servling};
+use crate::core::{
+    build_servling, LLMRequest, LLMResponse, OutcomeClassification, RunnerInvocation, Servling,
+};
 
 const AI_BACKENDS: [&str; 3] = ["claude", "copilot", "codex"];
 
@@ -43,7 +45,8 @@ pub fn agent_candidates(preferred: &str, custom_command: Option<String>) -> Vec<
 
 /// Format a candidate chain for display (e.g., "claude -> copilot -> codex").
 pub fn describe_candidates(candidates: &[AgentCandidate]) -> String {
-    candidates.iter()
+    candidates
+        .iter()
         .map(|c| c.name.as_str())
         .collect::<Vec<_>>()
         .join(" -> ")
@@ -120,7 +123,10 @@ impl Servling for CodingAgent {
                         if *current >= self.backends.len() {
                             return Ok(resp);
                         }
-                        log::warn!("Backend {} rate limited. Falling back to next.", backend.name());
+                        log::warn!(
+                            "Backend {} rate limited. Falling back to next.",
+                            backend.name()
+                        );
                     }
                     continue;
                 }
@@ -142,7 +148,9 @@ impl Servling for CodingAgent {
 
     fn planned_invocation(&self, request: &LLMRequest) -> Option<RunnerInvocation> {
         let idx = *self.current_index.lock().unwrap();
-        self.backends.get(idx).and_then(|b| b.planned_invocation(request))
+        self.backends
+            .get(idx)
+            .and_then(|b| b.planned_invocation(request))
     }
 }
 
@@ -154,7 +162,7 @@ pub fn build_coding_agent(candidates: Vec<AgentCandidate>) -> Result<Box<dyn Ser
 
     let mut builder = CodingAgent::builder();
     let mut count = 0;
-    
+
     for candidate in candidates {
         match build_servling(&candidate.name, candidate.command.clone()) {
             Ok(s) => {
@@ -164,10 +172,10 @@ pub fn build_coding_agent(candidates: Vec<AgentCandidate>) -> Result<Box<dyn Ser
             Err(e) => log::warn!("Agent candidate {} unavailable: {}", candidate.name, e),
         }
     }
-    
+
     if count == 0 {
         anyhow::bail!("No agent candidates available");
     }
-    
+
     Ok(Box::new(builder.build()?))
 }

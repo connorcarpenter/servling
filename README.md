@@ -83,13 +83,23 @@ It can even calculate the estimated cost of your session and rate your efficienc
 
 ---
 
+## ⚙️ Under the Hood: How it Works
+
+`servling` doesn't just call a library; it orchestrates full-blown CLI processes. Here's what happens when you call `agent.execute()`:
+
+1.  **Command Expansion**: It takes a template (e.g., `claude --print`) and dynamically injects parameters like `{input_file}`, `{mission_dir}`, and the requested `--model`.
+2.  **Subprocess Management**: It spawns the CLI tool using `std::process::Command`, carefully piping `stdin`, `stdout`, and `stderr`.
+3.  **IO Orchestration**:
+    *   **Stdin**: If the agent needs a prompt, `servling` writes it directly to the process's standard input.
+    *   **Stdout**: Captures the agent's response. If `stream_output` is enabled, it renders a cleaned-up version of the response (e.g., stripping JSON noise from Claude's output) in real-time.
+    *   **Stderr**: This is the "metadata channel." `servling` scans this stream with optimized regex to extract token usage, premium request counts, and model names.
+4.  **Resilience**: It monitors the process for timeouts and specific error patterns (like rate limits) to decide if it should trigger an automatic fallback to the next agent in your chain.
+
+---
+
 ## 🛠️ Internal Architecture
 
 - **`core.rs`**: The `Servling` trait and fundamental request/response types.
 - **`runner.rs`**: Low-level CLI execution, streaming, and timeout logic.
 - **`coding_agent.rs`**: High-level orchestration and fallback chains.
 - **`token_usage.rs`**: Regex-powered parsing for AI provider output formats.
-
----
-
-License: MIT or Apache-2.0

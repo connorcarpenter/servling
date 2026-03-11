@@ -1,9 +1,9 @@
 //! GitHub Copilot CLI agent.
 
+use crate::cli_backend::CliBackend;
+use crate::core::{LLMRequest, LLMResponse, RunnerInvocation, Servling};
 use anyhow::{bail, Result};
 use std::process::{Command, Stdio};
-use crate::core::{Servling, LLMRequest, LLMResponse, RunnerInvocation};
-use crate::cli_backend::CliBackend;
 
 pub struct CopilotAgent {
     cli: CliBackend,
@@ -46,7 +46,8 @@ impl Servling for CopilotAgent {
     }
 
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
-        self.cli.execute_with_expansion(request, false, Some(expand_model_name))
+        self.cli
+            .execute_with_expansion(request, false, Some(expand_model_name))
     }
 
     fn planned_invocation(&self, request: &LLMRequest) -> Option<RunnerInvocation> {
@@ -55,21 +56,36 @@ impl Servling for CopilotAgent {
             &request.working_dir,
             request.input_file.as_deref(),
             None,
-            request.model.as_deref().map(|m| expand_model_name(m)).as_deref()
+            request
+                .model
+                .as_deref()
+                .map(|m| expand_model_name(m))
+                .as_deref(),
         );
-        let parts: Vec<String> = cmd.split_whitespace().map(|s: &str| s.to_string()).collect();
-        if parts.is_empty() { return None; }
+        let parts: Vec<String> = cmd
+            .split_whitespace()
+            .map(|s: &str| s.to_string())
+            .collect();
+        if parts.is_empty() {
+            return None;
+        }
 
-        let mission_dir = request.input_file.as_ref()
+        let mission_dir = request
+            .input_file
+            .as_ref()
             .and_then(|p| p.parent())
             .unwrap_or(&request.working_dir);
-        let mission_dir_abs = std::fs::canonicalize(mission_dir).unwrap_or_else(|_| mission_dir.to_path_buf());
+        let mission_dir_abs =
+            std::fs::canonicalize(mission_dir).unwrap_or_else(|_| mission_dir.to_path_buf());
 
         Some(RunnerInvocation {
             program: parts[0].clone(),
             args: parts[1..].to_vec(),
             working_dir: request.working_dir.display().to_string(),
-            env: vec![("TESAKI_MISSION_DIR".to_string(), mission_dir_abs.display().to_string())],
+            env: vec![(
+                "TESAKI_MISSION_DIR".to_string(),
+                mission_dir_abs.display().to_string(),
+            )],
         })
     }
 }

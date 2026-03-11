@@ -1,22 +1,22 @@
 //! Core Servling trait and shared data structures.
 
 use anyhow::Result;
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
-use crate::token_usage::TokenUsage;
 use crate::claude_agent::ClaudeAgent;
 use crate::codex_agent::CodexAgent;
 use crate::copilot_agent::CopilotAgent;
+use crate::token_usage::TokenUsage;
 
 /// The core trait for any AI agent provider.
 pub trait Servling: Send + Sync {
     /// Execute a raw prompt against the LLM and return a standardized response.
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse>;
-    
+
     /// The display name of this agent.
     fn name(&self) -> &'static str;
-    
+
     /// Optional: Describe how to invoke this as a CLI command.
     fn planned_invocation(&self, _request: &LLMRequest) -> Option<RunnerInvocation> {
         None

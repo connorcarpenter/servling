@@ -14,31 +14,52 @@ pub struct CliBackend {
 }
 
 impl CliBackend {
-    pub fn expand_command(&self, 
-        base_cmd: &str, 
+    pub fn expand_command(
+        &self,
+        base_cmd: &str,
         working_dir: &Path,
-        input_path: Option<&Path>, 
+        input_path: Option<&Path>,
         output_path: Option<&Path>,
-        model: Option<&str>
+        model: Option<&str>,
     ) -> String {
         let mut cmd = base_cmd.to_string();
-        
+
         if let Some(m) = model {
             cmd = format!("{} --model {}", cmd, m);
         }
 
         let mission_dir = input_path.and_then(|p| p.parent()).unwrap_or(working_dir);
-            
-        cmd.replace("{input_file}", &input_path.map(|p| p.display().to_string()).unwrap_or_default())
-           .replace("{mission_dir}", &mission_dir.display().to_string())
-           .replace("{working_dir}", &working_dir.display().to_string())
-           .replace("{output_file}", &output_path.map(|p| p.display().to_string()).unwrap_or_default())
+
+        cmd.replace(
+            "{input_file}",
+            &input_path
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        )
+        .replace("{mission_dir}", &mission_dir.display().to_string())
+        .replace("{working_dir}", &working_dir.display().to_string())
+        .replace(
+            "{output_file}",
+            &output_path
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        )
     }
 
-    pub fn prepare_temp_files(&self, prompt: &str) -> Result<(Option<tempfile::NamedTempFile>, Option<PathBuf>, Option<tempfile::NamedTempFile>, Option<PathBuf>)> {
+    pub fn prepare_temp_files(
+        &self,
+        prompt: &str,
+    ) -> Result<(
+        Option<tempfile::NamedTempFile>,
+        Option<PathBuf>,
+        Option<tempfile::NamedTempFile>,
+        Option<PathBuf>,
+    )> {
         let mut temp_input = None;
         let mut input_path = None;
-        if self.command_template.contains("{input_file}") || self.command_template.contains("{mission_dir}") {
+        if self.command_template.contains("{input_file}")
+            || self.command_template.contains("{mission_dir}")
+        {
             let mut file = tempfile::NamedTempFile::new()?;
             file.write_all(prompt.as_bytes())?;
             input_path = Some(file.path().to_path_buf());
@@ -56,9 +77,15 @@ impl CliBackend {
         Ok((temp_input, input_path, temp_output, output_path))
     }
 
-    pub fn execute_with_expansion(&self, request: &LLMRequest, extract_error: bool, model_expander: Option<fn(&str) -> String>) -> Result<LLMResponse> {
-        let (temp_input, input_path, temp_output, output_path) = self.prepare_temp_files(&request.prompt)?;
-        
+    pub fn execute_with_expansion(
+        &self,
+        request: &LLMRequest,
+        extract_error: bool,
+        model_expander: Option<fn(&str) -> String>,
+    ) -> Result<LLMResponse> {
+        let (temp_input, input_path, temp_output, output_path) =
+            self.prepare_temp_files(&request.prompt)?;
+
         let model = request.model.as_deref().map(|m| {
             if let Some(expander) = model_expander {
                 expander(m)
@@ -72,7 +99,7 @@ impl CliBackend {
             &request.working_dir,
             input_path.as_deref().or(request.input_file.as_deref()),
             output_path.as_deref(),
-            model.as_deref()
+            model.as_deref(),
         );
 
         let config = CliRunnerConfig {
@@ -81,7 +108,8 @@ impl CliBackend {
             stream_output: request.stream_output,
         };
 
-        let mission_dir = input_path.as_deref()
+        let mission_dir = input_path
+            .as_deref()
             .or(request.input_file.as_deref())
             .and_then(|p| p.parent())
             .unwrap_or(&request.working_dir);
@@ -91,7 +119,11 @@ impl CliBackend {
             mission_dir,
             &config,
             extract_error,
-            if temp_input.is_some() || request.input_file.is_some() { None } else { Some(request.prompt.clone()) },
+            if temp_input.is_some() || request.input_file.is_some() {
+                None
+            } else {
+                Some(request.prompt.clone())
+            },
             input_path.as_deref().or(request.input_file.as_deref()),
             output_path.as_deref(),
         )?;
@@ -99,7 +131,9 @@ impl CliBackend {
         let text = if let Some(out_p) = output_path {
             std::fs::read_to_string(out_p).unwrap_or_default()
         } else {
-            outcome.stdout_path.as_ref()
+            outcome
+                .stdout_path
+                .as_ref()
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .unwrap_or_default()
         };

@@ -98,7 +98,11 @@ fn format_claude_user_event(value: &Value) -> Option<StreamLine> {
             .get("stderr")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let content = if !stdout.trim().is_empty() { stdout } else { stderr };
+        let content = if !stdout.trim().is_empty() {
+            stdout
+        } else {
+            stderr
+        };
         if !content.trim().is_empty() {
             return Some(StreamLine {
                 text: format!("\n[tool_result] {}", truncate_line(content, 200)),
@@ -319,20 +323,21 @@ pub fn run_cli_runner(
         }
     }
 
-    let (status, stdout_bytes, stderr_bytes) = match wait_with_streaming(child, timeout, config.stream_output) {
-        Ok(result) => result,
-        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
-            return Ok(CliRunnerOutcome {
-                exit_code: None,
-                classification: OutcomeClassification::Timeout,
-                elapsed_seconds: start.elapsed().as_secs_f64(),
-                stdout_path: None,
-                stderr_path: None,
-                token_usage: None,
-            });
-        }
-        Err(e) => return Err(e.into()),
-    };
+    let (status, stdout_bytes, stderr_bytes) =
+        match wait_with_streaming(child, timeout, config.stream_output) {
+            Ok(result) => result,
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                return Ok(CliRunnerOutcome {
+                    exit_code: None,
+                    classification: OutcomeClassification::Timeout,
+                    elapsed_seconds: start.elapsed().as_secs_f64(),
+                    stdout_path: None,
+                    stderr_path: None,
+                    token_usage: None,
+                });
+            }
+            Err(e) => return Err(e.into()),
+        };
 
     let output = std::process::Output {
         status,
@@ -371,7 +376,11 @@ pub fn run_cli_runner(
 
     let stderr_str = String::from_utf8_lossy(&output.stderr);
     let token_usage = TokenUsage::parse(&stderr_str);
-    let token_usage = if token_usage.has_data() { Some(token_usage) } else { None };
+    let token_usage = if token_usage.has_data() {
+        Some(token_usage)
+    } else {
+        None
+    };
 
     if let Some(ref usage) = token_usage {
         let usage_path = output_dir.join("token_usage.json");
@@ -396,10 +405,22 @@ fn is_rate_limited(output: &std::process::Output) -> bool {
     let combined = format!("{} {}", stdout, stderr);
 
     let patterns = [
-        "rate limit", "rate-limit", "ratelimit", "hit your limit",
-        "you've hit your limit", "quota exceeded", "insufficient credits",
-        "out of credits", "payment required", "billing", "too many requests",
-        "429", "try again later", "resets ", "usage limit", "api limit",
+        "rate limit",
+        "rate-limit",
+        "ratelimit",
+        "hit your limit",
+        "you've hit your limit",
+        "quota exceeded",
+        "insufficient credits",
+        "out of credits",
+        "payment required",
+        "billing",
+        "too many requests",
+        "429",
+        "try again later",
+        "resets ",
+        "usage limit",
+        "api limit",
     ];
 
     patterns.iter().any(|p| combined.contains(p))
