@@ -1,6 +1,7 @@
 //! Unified CLI-based LLM backend.
 
 use anyhow::Result;
+use serde_json::json;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -41,6 +42,7 @@ impl CliBackend {
             .map(|root| format!("--add-dir {}", root.display()))
             .collect::<Vec<_>>()
             .join(" ");
+        let claude_settings = build_claude_settings(working_dir, writable_roots);
 
         cmd.replace(
             "{input_file}",
@@ -52,6 +54,7 @@ impl CliBackend {
         .replace("{working_dir}", &working_dir.display().to_string())
         .replace("{writable_root}", &writable_root.display().to_string())
         .replace("{add_dir_args}", &add_dir_args)
+        .replace("{claude_settings}", &claude_settings)
         .replace(
             "{output_file}",
             &output_path
@@ -174,6 +177,43 @@ impl CliBackend {
     }
 }
 
+fn build_claude_settings(working_dir: &Path, writable_roots: &[PathBuf]) -> String {
+    let additional_directories = writable_roots
+        .iter()
+        .filter(|root| root.as_path() != working_dir)
+        .map(|root| claude_path(root))
+        .collect::<Vec<_>>();
+    let allow_write = writable_roots
+        .iter()
+        .map(|root| claude_path(root))
+        .collect::<Vec<_>>();
+
+    json!({
+        "sandbox": {
+            "enabled": true,
+            "autoAllowBashIfSandboxed": true,
+            "allowUnsandboxedCommands": false,
+            "filesystem": {
+                "allowWrite": allow_write,
+            }
+        },
+        "permissions": {
+            "defaultMode": "acceptEdits",
+            "additionalDirectories": additional_directories,
+        }
+    })
+    .to_string()
+}
+
+fn claude_path(path: &Path) -> String {
+    let rendered = path.display().to_string();
+    if rendered.starts_with('/') {
+        format!("//{}", rendered.trim_start_matches('/'))
+    } else {
+        rendered
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +243,32 @@ mod tests {
             expanded,
             "tool --root /repo/candidate --add-dir /repo/generated"
         );
+    }
+
+    #[test]
+    fn expand_command_embeds_claude_settings() {
+        let backend = CliBackend {
+            name: "claude",
+            command_template: "claude --settings {claude_settings}".to_string(),
+        };
+        let working_dir = PathBuf::from("/repo/candidate");
+        let writable_roots = vec![
+            PathBuf::from("/repo/candidate"),
+            PathBuf::from("/repo/generated"),
+        ];
+
+        let expanded = backend.expand_command(
+            &backend.command_template,
+            &working_dir,
+            &writable_roots,
+            None,
+            None,
+            None,
+        );
+
+        assert!(expanded.contains("\"enabled\":true"));
+        assert!(expanded.contains("\"defaultMode\":\"acceptEdits\""));
+        assert!(expanded.contains("\"allowWrite\":[\"//repo/candidate\",\"//repo/generated\"]"));
+        assert!(expanded.contains("\"additionalDirectories\":[\"//repo/generated\"]"));
     }
 }

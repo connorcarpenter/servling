@@ -13,9 +13,9 @@ impl ClaudeAgent {
     pub fn new(command: Option<String>, stream_output: bool) -> Self {
         let template = command.unwrap_or_else(|| {
             if stream_output {
-                "claude --print --permission-mode acceptEdits --add-dir {writable_root} {add_dir_args} --output-format stream-json --include-partial-messages --verbose".to_string()
+                "claude --print --settings {claude_settings} --output-format stream-json --include-partial-messages --verbose".to_string()
             } else {
-                "claude --print --permission-mode acceptEdits --add-dir {writable_root} {add_dir_args}".to_string()
+                "claude --print --settings {claude_settings}".to_string()
             }
         });
         Self {
