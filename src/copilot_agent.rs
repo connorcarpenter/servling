@@ -12,7 +12,7 @@ pub struct CopilotAgent {
 impl CopilotAgent {
     pub fn new(command: Option<String>) -> Self {
         let template = command.unwrap_or_else(|| {
-            "copilot -p @{input_file} --allow-all --add-dir {working_dir}".to_string()
+            "copilot -p @{input_file} --allow-all-tools --no-ask-user --disallow-temp-dir --add-dir {writable_root} {add_dir_args}".to_string()
         });
         Self {
             cli: CliBackend {
@@ -54,6 +54,7 @@ impl Servling for CopilotAgent {
         let cmd = self.cli.expand_command(
             &self.cli.command_template,
             &request.working_dir,
+            &request.writable_roots,
             request.input_file.as_deref(),
             None,
             request

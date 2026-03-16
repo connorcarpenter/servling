@@ -13,9 +13,9 @@ impl ClaudeAgent {
     pub fn new(command: Option<String>, stream_output: bool) -> Self {
         let template = command.unwrap_or_else(|| {
             if stream_output {
-                "claude --print --dangerously-skip-permissions --output-format stream-json --include-partial-messages --verbose".to_string()
+                "claude --print --permission-mode acceptEdits --add-dir {writable_root} {add_dir_args} --output-format stream-json --include-partial-messages --verbose".to_string()
             } else {
-                "claude --print --dangerously-skip-permissions".to_string()
+                "claude --print --permission-mode acceptEdits --add-dir {writable_root} {add_dir_args}".to_string()
             }
         });
         Self {
@@ -57,6 +57,7 @@ impl Servling for ClaudeAgent {
         let cmd = self.cli.expand_command(
             &self.cli.command_template,
             &request.working_dir,
+            &request.writable_roots,
             request.input_file.as_deref(),
             None,
             request.model.as_deref(),

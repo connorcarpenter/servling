@@ -12,7 +12,7 @@ pub struct CodexAgent {
 impl CodexAgent {
     pub fn new(command: Option<String>) -> Self {
         let template = command.unwrap_or_else(|| {
-            "codex exec --dangerously-bypass-approvals-and-sandbox -C {working_dir} -".to_string()
+            "codex -c approval_policy=\"never\" -c sandbox_mode=\"workspace-write\" exec -C {working_dir} {add_dir_args} -".to_string()
         });
         Self {
             cli: CliBackend {
@@ -53,6 +53,7 @@ impl Servling for CodexAgent {
         let cmd = self.cli.expand_command(
             &self.cli.command_template,
             &request.working_dir,
+            &request.writable_roots,
             request.input_file.as_deref(),
             None,
             request.model.as_deref(),

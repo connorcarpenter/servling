@@ -51,6 +51,7 @@ fn main() -> anyhow::Result<()> {
     let request = LLMRequest {
         prompt: "Refactor this function for better performance.".to_string(),
         working_dir: PathBuf::from("."),
+        writable_roots: vec![PathBuf::from(".")],
         model: Some("claude-3-5-sonnet".to_string()),
         max_runtime_seconds: 300,
         stream_output: true,

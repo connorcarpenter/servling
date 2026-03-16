@@ -18,6 +18,7 @@ impl CliBackend {
         &self,
         base_cmd: &str,
         working_dir: &Path,
+        writable_roots: &[PathBuf],
         input_path: Option<&Path>,
         output_path: Option<&Path>,
         model: Option<&str>,
@@ -29,6 +30,17 @@ impl CliBackend {
         }
 
         let mission_dir = input_path.and_then(|p| p.parent()).unwrap_or(working_dir);
+        let writable_root = writable_roots
+            .first()
+            .map(PathBuf::as_path)
+            .unwrap_or(working_dir);
+        let add_dir_args = writable_roots
+            .iter()
+            .skip(1)
+            .filter(|root| root.as_path() != working_dir)
+            .map(|root| format!("--add-dir {}", root.display()))
+            .collect::<Vec<_>>()
+            .join(" ");
 
         cmd.replace(
             "{input_file}",
@@ -38,6 +50,8 @@ impl CliBackend {
         )
         .replace("{mission_dir}", &mission_dir.display().to_string())
         .replace("{working_dir}", &working_dir.display().to_string())
+        .replace("{writable_root}", &writable_root.display().to_string())
+        .replace("{add_dir_args}", &add_dir_args)
         .replace(
             "{output_file}",
             &output_path
@@ -49,6 +63,7 @@ impl CliBackend {
     pub fn prepare_temp_files(
         &self,
         prompt: &str,
+        temp_dir: &Path,
     ) -> Result<(
         Option<tempfile::NamedTempFile>,
         Option<PathBuf>,
@@ -60,7 +75,7 @@ impl CliBackend {
         if self.command_template.contains("{input_file}")
             || self.command_template.contains("{mission_dir}")
         {
-            let mut file = tempfile::NamedTempFile::new()?;
+            let mut file = tempfile::NamedTempFile::new_in(temp_dir)?;
             file.write_all(prompt.as_bytes())?;
             input_path = Some(file.path().to_path_buf());
             temp_input = Some(file);
@@ -69,7 +84,7 @@ impl CliBackend {
         let mut temp_output = None;
         let mut output_path = None;
         if self.command_template.contains("{output_file}") {
-            let file = tempfile::NamedTempFile::new()?;
+            let file = tempfile::NamedTempFile::new_in(temp_dir)?;
             output_path = Some(file.path().to_path_buf());
             temp_output = Some(file);
         }
@@ -83,8 +98,13 @@ impl CliBackend {
         extract_error: bool,
         model_expander: Option<fn(&str) -> String>,
     ) -> Result<LLMResponse> {
+        let temp_dir = request
+            .writable_roots
+            .first()
+            .map(PathBuf::as_path)
+            .unwrap_or(&request.working_dir);
         let (temp_input, input_path, temp_output, output_path) =
-            self.prepare_temp_files(&request.prompt)?;
+            self.prepare_temp_files(&request.prompt, temp_dir)?;
 
         let model = request.model.as_deref().map(|m| {
             if let Some(expander) = model_expander {
@@ -97,6 +117,7 @@ impl CliBackend {
         let cmd = self.expand_command(
             &self.command_template,
             &request.working_dir,
+            &request.writable_roots,
             input_path.as_deref().or(request.input_file.as_deref()),
             output_path.as_deref(),
             model.as_deref(),
@@ -150,5 +171,37 @@ impl CliBackend {
             token_usage: outcome.token_usage,
             elapsed_seconds: outcome.elapsed_seconds,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expand_command_uses_writable_root_placeholders() {
+        let backend = CliBackend {
+            name: "test",
+            command_template: "tool --root {writable_root} {add_dir_args}".to_string(),
+        };
+        let working_dir = PathBuf::from("/repo/candidate");
+        let writable_roots = vec![
+            PathBuf::from("/repo/candidate"),
+            PathBuf::from("/repo/generated"),
+        ];
+
+        let expanded = backend.expand_command(
+            &backend.command_template,
+            &working_dir,
+            &writable_roots,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            expanded,
+            "tool --root /repo/candidate --add-dir /repo/generated"
+        );
     }
 }

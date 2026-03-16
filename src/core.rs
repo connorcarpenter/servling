@@ -43,6 +43,7 @@ impl Servling for Box<dyn Servling> {
 pub struct LLMRequest {
     pub prompt: String,
     pub working_dir: PathBuf,
+    pub writable_roots: Vec<PathBuf>,
     pub model: Option<String>,
     pub max_runtime_seconds: u32,
     pub stream_output: bool,
