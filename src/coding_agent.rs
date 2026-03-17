@@ -4,9 +4,12 @@ use std::sync::Mutex;
 
 use anyhow::{bail, Result};
 
+use crate::copilot_acp::CopilotAcpBackend;
 use crate::core::{
-    build_servling, LLMRequest, LLMResponse, OutcomeClassification, RunnerInvocation, Servling,
+    build_servling, LLMRequest, LLMResponse, OutcomeClassification, ProviderCapabilities,
+    ProviderKind, RunnerInvocation, Servling, TransportKind, TurnRunner,
 };
+use crate::session::SessionBackendBox;
 
 const AI_BACKENDS: [&str; 3] = ["claude", "copilot", "codex"];
 
@@ -99,10 +102,22 @@ impl CodingAgentBuilder {
     }
 }
 
-impl Servling for CodingAgent {
+impl TurnRunner for CodingAgent {
     fn name(&self) -> &'static str {
         let idx = *self.current_index.lock().unwrap();
         self.backends[idx].name()
+    }
+
+    fn provider_kind(&self) -> ProviderKind {
+        ProviderKind::Composite
+    }
+
+    fn transport_kind(&self) -> TransportKind {
+        TransportKind::CompositeBatchFallback
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::batch_with_fallback()
     }
 
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
@@ -178,4 +193,19 @@ pub fn build_coding_agent(candidates: Vec<AgentCandidate>) -> Result<Box<dyn Ser
     }
 
     Ok(Box::new(builder.build()?))
+}
+
+/// Build a single provider-pinned interactive session backend.
+///
+/// Selection happens once at session creation time and does not keep fallback
+/// state around for the live session.
+pub fn build_session_backend(candidates: Vec<AgentCandidate>) -> Result<SessionBackendBox> {
+    for candidate in candidates {
+        if candidate.name == "copilot" {
+            CopilotAcpBackend::check_available()?;
+            return Ok(Box::new(CopilotAcpBackend::new(candidate.command)));
+        }
+    }
+
+    bail!("No interactive session backend available in candidate set")
 }

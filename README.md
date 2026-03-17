@@ -4,14 +4,22 @@
 
 `servling` is a Rust crate providing a standardized, resilient interface for AI agents that run as CLI tools. It's the "little servant" (servling) that handles the messy work of interacting with LLM-powered command-line interfaces.
 
-Built originally as the core engine for high-reliability agent tasks, it manages **streaming**, **timeouts**, **token usage tracking**, and **automatic fallback logic**.
+`servling` now has two explicit execution lanes:
+
+- **Batch / turn lane** via `TurnRunner` / `Servling`
+- **Interactive session lane** via `SessionBackend`
+
+Built originally as the core engine for high-reliability agent tasks, it manages **streaming**, **timeouts**, **token usage tracking**, and **automatic fallback logic**. That batch lane remains intact. The session lane is additive and capability-based.
 
 ---
 
 ## ✨ Features
 
-- **Standardized Trait**: A single `Servling` trait to rule them all. Whether it's Claude, Copilot, or Codex, the interface is the same.
+- **Two-Lane Execution Model**: Batch turns stay separate from interactive sessions so real session transports do not get forced into one-shot abstractions.
+- **Standardized Batch Trait**: `TurnRunner` / `Servling` keeps the existing one-shot path stable.
+- **Optional Interactive Backends**: `SessionBackend` is only implemented where the provider actually supports interactive transport semantics.
 - **Resilient Fallbacks**: Automatic "chain-of-command" logic. If `Claude` is rate-limited, `servling` can automatically fall back to `Copilot` or `Codex` without missing a beat.
+- **Provider-Pinned Sessions**: Interactive sessions do not silently migrate across providers.
 - **Observability**: Built-in `stderr` parsing for real-time token usage, cost estimation (USD), and efficiency ratings.
 - **Live Streaming**: Full support for real-time output streaming from underlying CLI processes.
 - **Mission Control**: Handles standard mission/task structures, timeouts, and outcome classifications (Ok, Failed, Timeout, RateLimited).
@@ -25,6 +33,14 @@ Built originally as the core engine for high-reliability agent tasks, it manages
 | **Claude** | [Claude Code](https://github.com/anthropics/claude-code) |
 | **Copilot** | [GitHub Copilot CLI](https://github.com/github/gh-copilot) |
 | **Codex** | OpenAI Codex / Generic CLI Wrappers |
+
+## Interactive Session Backends
+
+| Provider | Transport | Status |
+| :--- | :--- | :--- |
+| **Copilot** | ACP (`copilot --acp`) | Implemented |
+| **Claude** | N/A | Batch only |
+| **Codex** | N/A | Batch only |
 
 ---
 
@@ -100,7 +116,18 @@ It can even calculate the estimated cost of your session and rate your efficienc
 
 ## 🛠️ Internal Architecture
 
-- **`core.rs`**: The `Servling` trait and fundamental request/response types.
+- **`core.rs`**: Batch lane traits plus provider/transport capability truth.
 - **`runner.rs`**: Low-level CLI execution, streaming, and timeout logic.
 - **`coding_agent.rs`**: High-level orchestration and fallback chains.
+- **`session.rs`**: Interactive session traits, handles, and bounded event model.
+- **`copilot_acp.rs`**: Copilot ACP session backend over stdio JSON-RPC.
 - **`token_usage.rs`**: Regex-powered parsing for AI provider output formats.
+
+## Session Policy
+
+- Batch fallback is still valid and automatic.
+- Interactive sessions are provider-pinned after creation.
+- Capability differences are explicit through `ProviderCapabilities`.
+- `servling` owns provider/session transport behavior, not durable operator truth.
+- `workroach` remains the intended future live process host for coding sessions.
+- `orchlord` should only persist coarse provider/transport/session-ref truth, not ACP protocol details.

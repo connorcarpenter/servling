@@ -9,13 +9,94 @@ use crate::codex_agent::CodexAgent;
 use crate::copilot_agent::CopilotAgent;
 use crate::token_usage::TokenUsage;
 
-/// The core trait for any AI agent provider.
-pub trait Servling: Send + Sync {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderKind {
+    Claude,
+    Codex,
+    Copilot,
+    Composite,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransportKind {
+    CliBatch,
+    CopilotAcp,
+    CompositeBatchFallback,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ProviderCapabilities {
+    pub supports_batch_mode: bool,
+    pub supports_interactive_session_mode: bool,
+    pub supports_resume: bool,
+    pub supports_live_steering_while_running: bool,
+    pub supports_operator_interrupt: bool,
+    pub supports_durable_provider_session_ref: bool,
+    pub supports_structured_event_stream: bool,
+    pub supports_tool_call_events: bool,
+    pub supports_batch_fallback: bool,
+    pub session_provider_pinned: bool,
+}
+
+impl ProviderCapabilities {
+    pub const fn batch_only() -> Self {
+        Self {
+            supports_batch_mode: true,
+            supports_interactive_session_mode: false,
+            supports_resume: false,
+            supports_live_steering_while_running: false,
+            supports_operator_interrupt: false,
+            supports_durable_provider_session_ref: false,
+            supports_structured_event_stream: false,
+            supports_tool_call_events: false,
+            supports_batch_fallback: false,
+            session_provider_pinned: false,
+        }
+    }
+
+    pub const fn batch_with_fallback() -> Self {
+        let mut caps = Self::batch_only();
+        caps.supports_batch_fallback = true;
+        caps
+    }
+
+    pub const fn copilot_acp() -> Self {
+        Self {
+            supports_batch_mode: true,
+            supports_interactive_session_mode: true,
+            supports_resume: true,
+            supports_live_steering_while_running: false,
+            supports_operator_interrupt: true,
+            supports_durable_provider_session_ref: true,
+            supports_structured_event_stream: true,
+            supports_tool_call_events: false,
+            supports_batch_fallback: false,
+            session_provider_pinned: true,
+        }
+    }
+}
+
+/// The batch execution lane for any AI agent provider.
+pub trait TurnRunner: Send + Sync {
     /// Execute a raw prompt against the LLM and return a standardized response.
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse>;
 
     /// The display name of this agent.
     fn name(&self) -> &'static str;
+
+    /// Stable provider identity.
+    fn provider_kind(&self) -> ProviderKind;
+
+    /// Concrete transport used for batch execution.
+    fn transport_kind(&self) -> TransportKind;
+
+    /// Honest capability report for this backend.
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::batch_only()
+    }
 
     /// Optional: Describe how to invoke this as a CLI command.
     fn planned_invocation(&self, _request: &LLMRequest) -> Option<RunnerInvocation> {
@@ -23,14 +104,31 @@ pub trait Servling: Send + Sync {
     }
 }
 
-/// Implement Servling for Boxed trait objects to allow delegation.
-impl Servling for Box<dyn Servling> {
+/// Backwards-compatible alias for the existing batch lane API.
+pub trait Servling: TurnRunner {}
+
+impl<T: TurnRunner + ?Sized> Servling for T {}
+
+/// Implement TurnRunner for boxed trait objects to allow delegation.
+impl TurnRunner for Box<dyn Servling> {
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
         (**self).execute(request)
     }
 
     fn name(&self) -> &'static str {
         (**self).name()
+    }
+
+    fn provider_kind(&self) -> ProviderKind {
+        (**self).provider_kind()
+    }
+
+    fn transport_kind(&self) -> TransportKind {
+        (**self).transport_kind()
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        (**self).capabilities()
     }
 
     fn planned_invocation(&self, request: &LLMRequest) -> Option<RunnerInvocation> {

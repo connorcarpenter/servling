@@ -1,7 +1,10 @@
 //! Codex CLI agent.
 
 use crate::cli_backend::CliBackend;
-use crate::core::{LLMRequest, LLMResponse, RunnerInvocation, Servling};
+use crate::core::{
+    LLMRequest, LLMResponse, ProviderCapabilities, ProviderKind, RunnerInvocation, TransportKind,
+    TurnRunner,
+};
 use anyhow::{bail, Result};
 use std::process::{Command, Stdio};
 
@@ -40,9 +43,21 @@ impl CodexAgent {
     }
 }
 
-impl Servling for CodexAgent {
+impl TurnRunner for CodexAgent {
     fn name(&self) -> &'static str {
         self.cli.name
+    }
+
+    fn provider_kind(&self) -> ProviderKind {
+        ProviderKind::Codex
+    }
+
+    fn transport_kind(&self) -> TransportKind {
+        TransportKind::CliBatch
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::batch_only()
     }
 
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
