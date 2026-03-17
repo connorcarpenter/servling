@@ -101,13 +101,11 @@ impl CliBackend {
         extract_error: bool,
         model_expander: Option<fn(&str) -> String>,
     ) -> Result<LLMResponse> {
-        let temp_dir = request
-            .writable_roots
-            .first()
-            .map(PathBuf::as_path)
-            .unwrap_or(&request.working_dir);
+        let temp_dir = request.preferred_temp_dir();
+        std::fs::create_dir_all(&temp_dir)?;
         let (temp_input, input_path, temp_output, output_path) =
-            self.prepare_temp_files(&request.prompt, temp_dir)?;
+            self.prepare_temp_files(&request.prompt, &temp_dir)?;
+        let writable_roots = request.writable_roots();
 
         let model = request.model.as_deref().map(|m| {
             if let Some(expander) = model_expander {
@@ -120,7 +118,7 @@ impl CliBackend {
         let cmd = self.expand_command(
             &self.command_template,
             &request.working_dir,
-            &request.writable_roots,
+            &writable_roots,
             input_path.as_deref().or(request.input_file.as_deref()),
             output_path.as_deref(),
             model.as_deref(),
@@ -130,6 +128,7 @@ impl CliBackend {
             working_dir: request.working_dir.clone(),
             max_runtime_seconds: request.max_runtime_seconds,
             stream_output: request.stream_output,
+            env: request.runtime_env.clone(),
         };
 
         let mission_dir = input_path

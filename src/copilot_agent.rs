@@ -66,10 +66,11 @@ impl TurnRunner for CopilotAgent {
     }
 
     fn planned_invocation(&self, request: &LLMRequest) -> Option<RunnerInvocation> {
+        let writable_roots = request.writable_roots();
         let cmd = self.cli.expand_command(
             &self.cli.command_template,
             &request.working_dir,
-            &request.writable_roots,
+            &writable_roots,
             request.input_file.as_deref(),
             None,
             request
@@ -94,14 +95,17 @@ impl TurnRunner for CopilotAgent {
         let mission_dir_abs =
             std::fs::canonicalize(mission_dir).unwrap_or_else(|_| mission_dir.to_path_buf());
 
+        let mut env = vec![(
+            "TESAKI_MISSION_DIR".to_string(),
+            mission_dir_abs.display().to_string(),
+        )];
+        env.extend(request.runtime_env.iter().cloned());
+
         Some(RunnerInvocation {
             program: parts[0].clone(),
             args: parts[1..].to_vec(),
             working_dir: request.working_dir.display().to_string(),
-            env: vec![(
-                "TESAKI_MISSION_DIR".to_string(),
-                mission_dir_abs.display().to_string(),
-            )],
+            env,
         })
     }
 }

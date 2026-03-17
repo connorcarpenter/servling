@@ -1273,7 +1273,10 @@ mod tests {
             .execute(&LLMRequest {
                 prompt: "hi".to_string(),
                 working_dir: PathBuf::from("."),
-                writable_roots: vec![PathBuf::from(".")],
+                source_writable_roots: vec![PathBuf::from(".")],
+                runtime_writable_roots: Vec::new(),
+                runtime_env: Vec::new(),
+                runtime_profile: None,
                 model: None,
                 max_runtime_seconds: 5,
                 stream_output: false,

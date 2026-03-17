@@ -238,6 +238,7 @@ pub struct CliRunnerConfig {
     pub working_dir: PathBuf,
     pub max_runtime_seconds: u32,
     pub stream_output: bool,
+    pub env: Vec<(String, String)>,
 }
 
 pub struct CliRunnerOutcome {
@@ -303,6 +304,7 @@ pub fn run_cli_runner(
     cmd.args(&args)
         .current_dir(&config.working_dir)
         .env("TESAKI_MISSION_DIR", &mission_dir_abs)
+        .envs(config.env.iter().map(|(key, value)| (key, value)))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 

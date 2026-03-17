@@ -141,12 +141,42 @@ impl TurnRunner for Box<dyn Servling> {
 pub struct LLMRequest {
     pub prompt: String,
     pub working_dir: PathBuf,
-    pub writable_roots: Vec<PathBuf>,
+    pub source_writable_roots: Vec<PathBuf>,
+    pub runtime_writable_roots: Vec<PathBuf>,
+    pub runtime_env: Vec<(String, String)>,
+    pub runtime_profile: Option<String>,
     pub model: Option<String>,
     pub max_runtime_seconds: u32,
     pub stream_output: bool,
     /// Optional: If the prompt is already stored in a file.
     pub input_file: Option<PathBuf>,
+}
+
+impl LLMRequest {
+    pub fn writable_roots(&self) -> Vec<PathBuf> {
+        let mut roots = Vec::new();
+        for root in self
+            .source_writable_roots
+            .iter()
+            .chain(self.runtime_writable_roots.iter())
+        {
+            if !roots.iter().any(|existing| existing == root) {
+                roots.push(root.clone());
+            }
+        }
+        if roots.is_empty() {
+            roots.push(self.working_dir.clone());
+        }
+        roots
+    }
+
+    pub fn preferred_temp_dir(&self) -> PathBuf {
+        self.runtime_writable_roots
+            .first()
+            .cloned()
+            .or_else(|| self.source_writable_roots.first().cloned())
+            .unwrap_or_else(|| self.working_dir.clone())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
