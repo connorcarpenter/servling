@@ -1287,4 +1287,203 @@ mod tests {
         assert_eq!(response.text, "second");
         assert!(agent.capabilities().supports_batch_fallback);
     }
+
+    // -----------------------------------------------------------------------
+    // Real-provider probe tests (opt-in, require live Copilot CLI + auth)
+    //
+    // Run:  cargo test -p servling -- real_provider --ignored --nocapture
+    // -----------------------------------------------------------------------
+
+    /// Basic turn: starts a real session, sends one short non-destructive turn,
+    /// drains all events, and asserts session returns to Ready.
+    #[test]
+    #[ignore = "requires live copilot CLI + GitHub auth; run: cargo test -p servling -- --ignored --nocapture"]
+    fn real_provider_probe_basic_turn() {
+        use std::fs;
+
+        let workspace = "/tmp/brood-probe-workspace";
+        fs::create_dir_all(workspace).expect("tmp workspace");
+
+        let backend = CopilotAcpBackend::with_io_factory(None, Arc::new(ProcessAcpIoFactory));
+        let session = backend
+            .start_session(&SessionStartRequest::new(workspace))
+            .expect("real session starts");
+
+        // Drain startup events (expect SessionStarted within 20 s)
+        let mut startup_events: Vec<String> = Vec::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "session did not start within 20 s; events so far: {startup_events:?}"
+            );
+            if let Some(event) = session
+                .next_event(Duration::from_secs(2))
+                .expect("startup event read")
+            {
+                let label = format!("{event:?}");
+                eprintln!("[probe/startup] {label}");
+                startup_events.push(label);
+                if matches!(event, SessionEvent::SessionStarted { .. }) {
+                    break;
+                }
+            }
+        }
+        eprintln!("[probe] session started; total startup events: {}", startup_events.len());
+
+        // Send a simple non-destructive turn that needs no tool use
+        let stop_reason = session
+            .send_user_turn(&UserTurnRequest::new(
+                "Reply with exactly: PROBE_OK — no tools, no preamble, nothing else.",
+            ))
+            .expect("turn completes");
+
+        eprintln!("[probe] stop_reason: {stop_reason:?}");
+        eprintln!("[probe] post-turn status: {:?}", session.status());
+
+        // Drain remaining queued events from the turn
+        let mut turn_events: Vec<String> = Vec::new();
+        loop {
+            match session.next_event(Duration::from_millis(300)) {
+                Ok(Some(event)) => {
+                    let label = format!("{event:?}");
+                    eprintln!("[probe/turn] {label}");
+                    turn_events.push(label);
+                }
+                _ => break,
+            }
+        }
+        eprintln!(
+            "[probe] turn events drained: {} events",
+            turn_events.len()
+        );
+
+        // Assertions
+        assert_eq!(
+            session.status(),
+            SessionRuntimeStatus::Ready,
+            "status must return to Ready after turn"
+        );
+        let ok = matches!(
+            stop_reason,
+            SessionStopReason::EndTurn
+                | SessionStopReason::MaxTokens
+                | SessionStopReason::Unknown(_)
+        );
+        assert!(ok, "stop_reason must be a recognized terminal reason; got: {stop_reason:?}");
+    }
+
+    /// Interrupt probe: starts a real session, sends a long-running turn,
+    /// interrupts after a short delay, and records what the provider yields.
+    #[test]
+    #[ignore = "requires live copilot CLI + GitHub auth; run: cargo test -p servling -- --ignored --nocapture"]
+    fn real_provider_probe_interrupt() {
+        use std::fs;
+
+        let workspace = "/tmp/brood-probe-workspace";
+        fs::create_dir_all(workspace).expect("tmp workspace");
+
+        let backend = CopilotAcpBackend::with_io_factory(None, Arc::new(ProcessAcpIoFactory));
+        let session: Arc<dyn InteractiveSession> = Arc::from(
+            backend
+                .start_session(&SessionStartRequest::new(workspace))
+                .expect("real session starts"),
+        );
+
+        // Wait for SessionStarted
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "session did not start within 20 s"
+            );
+            if let Some(event) = session
+                .next_event(Duration::from_secs(2))
+                .expect("startup event read")
+            {
+                eprintln!("[probe/interrupt/startup] {event:?}");
+                if matches!(event, SessionEvent::SessionStarted { .. }) {
+                    break;
+                }
+            }
+        }
+
+        // Spawn turn in separate thread (blocks until done)
+        let session_for_turn = session.clone();
+        let join = thread::spawn(move || {
+            session_for_turn.send_user_turn(&UserTurnRequest::new(
+                "Count slowly from 1 to 500, one number per line, no other text.",
+            ))
+        });
+
+        // Wait for Running status before interrupting
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "never saw Running status"
+            );
+            if let Some(event) = session.next_event(Duration::from_secs(2)).expect("event") {
+                eprintln!("[probe/interrupt/pre] {event:?}");
+                if matches!(
+                    event,
+                    SessionEvent::StatusChanged {
+                        status: SessionRuntimeStatus::Running
+                    }
+                ) {
+                    break;
+                }
+            }
+        }
+        eprintln!("[probe/interrupt] Running confirmed; interrupting...");
+        session.interrupt().expect("interrupt issued without error");
+
+        // Collect post-interrupt events until turn thread finishes
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let mut post_events: Vec<String> = Vec::new();
+        loop {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "turn thread did not finish within 30 s post-interrupt"
+            );
+            if join.is_finished() {
+                // Drain a bit more to capture TurnCompleted + StatusChanged
+                loop {
+                    match session.next_event(Duration::from_millis(200)) {
+                        Ok(Some(event)) => {
+                            eprintln!("[probe/interrupt/post] {event:?}");
+                            post_events.push(format!("{event:?}"));
+                        }
+                        _ => break,
+                    }
+                }
+                break;
+            }
+            if let Some(event) = session.next_event(Duration::from_secs(1)).expect("event") {
+                eprintln!("[probe/interrupt/post] {event:?}");
+                post_events.push(format!("{event:?}"));
+            }
+        }
+
+        let stop_reason = join
+            .join()
+            .expect("thread join")
+            .expect("turn returned Ok");
+        eprintln!("[probe/interrupt] final stop_reason: {stop_reason:?}");
+        eprintln!("[probe/interrupt] post-interrupt events ({}):", post_events.len());
+        for e in &post_events {
+            eprintln!("  {e}");
+        }
+        eprintln!("[probe/interrupt] final session status: {:?}", session.status());
+
+        // After interrupt + turn completion the session must be usable again
+        assert!(
+            matches!(
+                session.status(),
+                SessionRuntimeStatus::Ready | SessionRuntimeStatus::Ended
+            ),
+            "session should be Ready or Ended after interrupt, got: {:?}",
+            session.status()
+        );
+    }
 }
