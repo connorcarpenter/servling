@@ -9,8 +9,8 @@ use crate::backend_registry::{
     find_backend_descriptor,
 };
 use crate::core::{
-    LLMRequest, LLMResponse, OutcomeClassification, ProviderCapabilities, ProviderKind,
-    RunnerInvocation, Servling, TransportKind, TurnRunner,
+    Backend, BackendMetadata, LLMRequest, LLMResponse, OutcomeClassification, ProviderCapabilities,
+    ProviderKind, RunnerInvocation, Servling, TransportKind, TurnRunner,
 };
 use crate::session::SessionBackendBox;
 
@@ -103,24 +103,18 @@ impl CodingAgentBuilder {
     }
 }
 
+impl Backend for CodingAgent {
+    fn metadata(&self) -> BackendMetadata {
+        BackendMetadata {
+            name: "composite",
+            provider_kind: ProviderKind::Composite,
+            transport_kind: TransportKind::CompositeBatchFallback,
+            capabilities: ProviderCapabilities::batch_fallback_chain(),
+        }
+    }
+}
+
 impl TurnRunner for CodingAgent {
-    fn name(&self) -> &'static str {
-        let idx = *self.current_index.lock().unwrap();
-        self.backends[idx].name()
-    }
-
-    fn provider_kind(&self) -> ProviderKind {
-        ProviderKind::Composite
-    }
-
-    fn transport_kind(&self) -> TransportKind {
-        TransportKind::CompositeBatchFallback
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::batch_fallback_chain()
-    }
-
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
         loop {
             let (idx, backend) = {

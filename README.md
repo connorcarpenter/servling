@@ -17,6 +17,7 @@ Built originally as the core engine for high-reliability agent tasks, it manages
 ## ✨ Features
 
 - **Two-Lane Execution Model**: Batch turns stay separate from interactive sessions so real session transports do not get forced into one-shot abstractions.
+- **Shared Backend Metadata Trait**: `Backend` defines provider identity, transport truth, and capability truth once for both lanes.
 - **Standardized Batch Trait**: `TurnRunner` / `Servling` keeps the existing one-shot path stable.
 - **Optional Interactive Backends**: `SessionBackend` is only implemented where the provider actually supports interactive transport semantics.
 - **Resilient Fallbacks**: Automatic "chain-of-command" logic. If `Claude` is rate-limited, `servling` can automatically fall back to `Copilot` or `Codex` without missing a beat.
@@ -120,7 +121,7 @@ It can even calculate the estimated cost of your session and rate your efficienc
 
 ## 🛠️ Internal Architecture
 
-- **`core.rs`**: Batch lane traits plus provider-neutral transport and capability truth.
+- **`core.rs`**: Shared `Backend` metadata trait plus batch lane traits, provider-neutral transport, and capability truth.
 - **`backend_registry.rs`**: Declarative provider registry for batch/session construction.
 - **`runner.rs`**: Low-level CLI execution, streaming, and timeout logic.
 - **`coding_agent.rs`**: High-level orchestration and fallback chains.

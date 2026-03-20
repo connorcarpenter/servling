@@ -14,7 +14,9 @@ use tokio::runtime::Builder as RuntimeBuilder;
 use tokio::sync::{mpsc as tokio_mpsc, oneshot};
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
 
-use crate::core::{normalize_model, ProviderCapabilities, ProviderKind, TransportKind};
+use crate::core::{
+    normalize_model, Backend, BackendMetadata, ProviderCapabilities, ProviderKind, TransportKind,
+};
 use crate::session::{
     InteractiveSession, ProviderSessionHandle, ProviderSessionListing, SessionBackend,
     SessionContentKind, SessionEvent, SessionResumeRequest, SessionRuntimeStatus,
@@ -153,23 +155,18 @@ impl CopilotAcpBackend {
     }
 }
 
+impl Backend for CopilotAcpBackend {
+    fn metadata(&self) -> BackendMetadata {
+        BackendMetadata {
+            name: "copilot",
+            provider_kind: ProviderKind::Copilot,
+            transport_kind: TransportKind::CliJsonRpc,
+            capabilities: ProviderCapabilities::session_jsonrpc(),
+        }
+    }
+}
+
 impl SessionBackend for CopilotAcpBackend {
-    fn name(&self) -> &'static str {
-        "copilot"
-    }
-
-    fn provider_kind(&self) -> ProviderKind {
-        ProviderKind::Copilot
-    }
-
-    fn transport_kind(&self) -> TransportKind {
-        TransportKind::CliJsonRpc
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::session_jsonrpc()
-    }
-
     fn start_session(&self, request: &SessionStartRequest) -> Result<Box<dyn InteractiveSession>> {
         self.spawn_session(
             &request.working_dir,
@@ -1222,6 +1219,17 @@ mod tests {
         responses: Mutex<Vec<Result<OutcomeClassification, &'static str>>>,
     }
 
+    impl Backend for StubRunner {
+        fn metadata(&self) -> BackendMetadata {
+            BackendMetadata {
+                name: self.name,
+                provider_kind: ProviderKind::Composite,
+                transport_kind: TransportKind::CliBatch,
+                capabilities: ProviderCapabilities::batch_only(),
+            }
+        }
+    }
+
     impl TurnRunner for StubRunner {
         fn execute(&self, _request: &LLMRequest) -> Result<LLMResponse> {
             match self.responses.lock().unwrap().remove(0) {
@@ -1236,22 +1244,6 @@ mod tests {
                 }),
                 Err(message) => Err(anyhow!(message)),
             }
-        }
-
-        fn name(&self) -> &'static str {
-            self.name
-        }
-
-        fn provider_kind(&self) -> ProviderKind {
-            ProviderKind::Composite
-        }
-
-        fn transport_kind(&self) -> TransportKind {
-            TransportKind::CliBatch
-        }
-
-        fn capabilities(&self) -> ProviderCapabilities {
-            ProviderCapabilities::batch_only()
         }
     }
 

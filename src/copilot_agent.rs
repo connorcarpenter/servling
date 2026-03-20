@@ -2,8 +2,8 @@
 
 use crate::cli_backend::CliBackend;
 use crate::core::{
-    LLMRequest, LLMResponse, ProviderCapabilities, ProviderKind, RunnerInvocation, TransportKind,
-    TurnRunner,
+    Backend, BackendMetadata, LLMRequest, LLMResponse, ProviderCapabilities, ProviderKind,
+    RunnerInvocation, TransportKind, TurnRunner,
 };
 use anyhow::{bail, Result};
 use std::process::{Command, Stdio};
@@ -15,7 +15,7 @@ pub struct CopilotAgent {
 impl CopilotAgent {
     pub fn new(command: Option<String>) -> Self {
         let template = command.unwrap_or_else(|| {
-            "copilot -p @{input_file} --allow-all-tools --no-ask-user --disallow-temp-dir --add-dir {writable_root} {add_dir_args}".to_string()
+            "copilot -p @{input_file} --disable-builtin-mcps --no-custom-instructions --allow-all-tools --no-ask-user --disallow-temp-dir --add-dir {writable_root} {add_dir_args}".to_string()
         });
         Self {
             cli: CliBackend {
@@ -43,23 +43,18 @@ impl CopilotAgent {
     }
 }
 
+impl Backend for CopilotAgent {
+    fn metadata(&self) -> BackendMetadata {
+        BackendMetadata {
+            name: "copilot",
+            provider_kind: ProviderKind::Copilot,
+            transport_kind: TransportKind::CliBatch,
+            capabilities: ProviderCapabilities::batch_only(),
+        }
+    }
+}
+
 impl TurnRunner for CopilotAgent {
-    fn name(&self) -> &'static str {
-        "copilot"
-    }
-
-    fn provider_kind(&self) -> ProviderKind {
-        ProviderKind::Copilot
-    }
-
-    fn transport_kind(&self) -> TransportKind {
-        TransportKind::CliBatch
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::batch_only()
-    }
-
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
         self.cli
             .execute_with_expansion(request, false, Some(expand_model_name))

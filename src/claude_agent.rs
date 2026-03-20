@@ -2,8 +2,8 @@
 
 use crate::cli_backend::CliBackend;
 use crate::core::{
-    LLMRequest, LLMResponse, ProviderCapabilities, ProviderKind, RunnerInvocation, TransportKind,
-    TurnRunner,
+    Backend, BackendMetadata, LLMRequest, LLMResponse, ProviderCapabilities, ProviderKind,
+    RunnerInvocation, TransportKind, TurnRunner,
 };
 use anyhow::{bail, Result};
 use std::process::{Command, Stdio};
@@ -47,23 +47,18 @@ impl ClaudeAgent {
     }
 }
 
+impl Backend for ClaudeAgent {
+    fn metadata(&self) -> BackendMetadata {
+        BackendMetadata {
+            name: self.cli.name,
+            provider_kind: ProviderKind::Claude,
+            transport_kind: TransportKind::CliBatch,
+            capabilities: ProviderCapabilities::batch_only(),
+        }
+    }
+}
+
 impl TurnRunner for ClaudeAgent {
-    fn name(&self) -> &'static str {
-        self.cli.name
-    }
-
-    fn provider_kind(&self) -> ProviderKind {
-        ProviderKind::Claude
-    }
-
-    fn transport_kind(&self) -> TransportKind {
-        TransportKind::CliBatch
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::batch_only()
-    }
-
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
         self.cli.execute_with_expansion(request, true, None)
     }

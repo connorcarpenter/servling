@@ -10,7 +10,7 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::core::{ProviderCapabilities, ProviderKind, TransportKind};
+use crate::core::{Backend, BackendMetadata, ProviderCapabilities, ProviderKind, TransportKind};
 use crate::session::{
     InteractiveSession, ProviderSessionHandle, ProviderSessionListing, SessionBackend,
     SessionContentKind, SessionEvent, SessionResumeRequest, SessionRuntimeStatus,
@@ -35,23 +35,18 @@ impl CodexSessionBackend {
     }
 }
 
+impl Backend for CodexSessionBackend {
+    fn metadata(&self) -> BackendMetadata {
+        BackendMetadata {
+            name: "codex",
+            provider_kind: ProviderKind::Codex,
+            transport_kind: TransportKind::CliResumableTurns,
+            capabilities: Self::capabilities(),
+        }
+    }
+}
+
 impl SessionBackend for CodexSessionBackend {
-    fn name(&self) -> &'static str {
-        "codex"
-    }
-
-    fn provider_kind(&self) -> ProviderKind {
-        ProviderKind::Codex
-    }
-
-    fn transport_kind(&self) -> TransportKind {
-        TransportKind::CliResumableTurns
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        Self::capabilities()
-    }
-
     fn start_session(&self, request: &SessionStartRequest) -> Result<Box<dyn InteractiveSession>> {
         Ok(Box::new(CodexSession::new(
             self.command.clone(),

@@ -19,10 +19,11 @@ pub use crate::backend_registry::{
     BackendDescriptor,
 };
 pub use crate::core::{
-    build_servling, normalize_model, BatchCapabilities, BatchFallbackPolicy, LLMRequest,
-    LLMResponse, OutcomeClassification, ProviderCapabilities, ProviderKind, RunnerInvocation,
-    Servling, SessionAffinity, SessionCapabilities, SessionControlCapabilities,
-    SessionEventCapabilities, SessionResumeKind, TransportKind, TurnRunner,
+    build_servling, normalize_model, Backend, BackendMetadata, BatchCapabilities,
+    BatchFallbackPolicy, LLMRequest, LLMResponse, OutcomeClassification, ProviderCapabilities,
+    ProviderKind, RunnerInvocation, Servling, SessionAffinity, SessionCapabilities,
+    SessionControlCapabilities, SessionEventCapabilities, SessionResumeKind, TransportKind,
+    TurnRunner,
 };
 pub use claude_agent::ClaudeAgent;
 pub use cli_backend::CliBackend;
