@@ -57,7 +57,7 @@ impl TurnRunner for CopilotAgent {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::copilot_acp()
+        ProviderCapabilities::batch_only()
     }
 
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {

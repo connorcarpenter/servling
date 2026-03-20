@@ -4,14 +4,15 @@ use std::sync::Mutex;
 
 use anyhow::{bail, Result};
 
-use crate::copilot_acp::CopilotAcpBackend;
+use crate::backend_registry::{
+    build_batch_backend, build_session_backend_by_name, default_batch_backend_names,
+    find_backend_descriptor,
+};
 use crate::core::{
-    build_servling, LLMRequest, LLMResponse, OutcomeClassification, ProviderCapabilities,
-    ProviderKind, RunnerInvocation, Servling, TransportKind, TurnRunner,
+    LLMRequest, LLMResponse, OutcomeClassification, ProviderCapabilities, ProviderKind,
+    RunnerInvocation, Servling, TransportKind, TurnRunner,
 };
 use crate::session::SessionBackendBox;
-
-const AI_BACKENDS: [&str; 3] = ["claude", "copilot", "codex"];
 
 #[derive(Debug, Clone)]
 pub struct AgentCandidate {
@@ -34,9 +35,9 @@ pub fn agent_candidates(preferred: &str, custom_command: Option<String>) -> Vec<
         }
     };
 
-    if AI_BACKENDS.contains(&preferred.as_str()) {
+    if find_backend_descriptor(&preferred).is_some() {
         push(&preferred, custom_command);
-        for name in AI_BACKENDS {
+        for name in default_batch_backend_names() {
             push(name, None);
         }
     } else {
@@ -117,7 +118,7 @@ impl TurnRunner for CodingAgent {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::batch_with_fallback()
+        ProviderCapabilities::batch_fallback_chain()
     }
 
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
@@ -172,14 +173,14 @@ impl TurnRunner for CodingAgent {
 /// Build a CodingAgent (with fallbacks) from a list of candidates.
 pub fn build_coding_agent(candidates: Vec<AgentCandidate>) -> Result<Box<dyn Servling>> {
     if candidates.len() == 1 {
-        return build_servling(&candidates[0].name, candidates[0].command.clone());
+        return build_batch_backend(&candidates[0].name, candidates[0].command.clone());
     }
 
     let mut builder = CodingAgent::builder();
     let mut count = 0;
 
     for candidate in candidates {
-        match build_servling(&candidate.name, candidate.command.clone()) {
+        match build_batch_backend(&candidate.name, candidate.command.clone()) {
             Ok(s) => {
                 builder = builder.register(s);
                 count += 1;
@@ -201,9 +202,11 @@ pub fn build_coding_agent(candidates: Vec<AgentCandidate>) -> Result<Box<dyn Ser
 /// state around for the live session.
 pub fn build_session_backend(candidates: Vec<AgentCandidate>) -> Result<SessionBackendBox> {
     for candidate in candidates {
-        if candidate.name == "copilot" {
-            CopilotAcpBackend::check_available()?;
-            return Ok(Box::new(CopilotAcpBackend::new(candidate.command)));
+        let is_session_candidate = find_backend_descriptor(&candidate.name)
+            .map(|descriptor| descriptor.supports_session_lane())
+            .unwrap_or(false);
+        if is_session_candidate {
+            return build_session_backend_by_name(&candidate.name, candidate.command);
         }
     }
 

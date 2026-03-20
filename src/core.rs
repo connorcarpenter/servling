@@ -1,13 +1,9 @@
 //! Core Servling trait and shared data structures.
 
+use crate::token_usage::TokenUsage;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-
-use crate::claude_agent::ClaudeAgent;
-use crate::codex_agent::CodexAgent;
-use crate::copilot_agent::CopilotAgent;
-use crate::token_usage::TokenUsage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -22,81 +18,300 @@ pub enum ProviderKind {
 #[serde(rename_all = "snake_case")]
 pub enum TransportKind {
     CliBatch,
-    CopilotAcp,
+    CliResumableTurns,
+    CliJsonRpc,
     CompositeBatchFallback,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ProviderCapabilities {
-    pub supports_batch_mode: bool,
-    pub supports_interactive_session_mode: bool,
-    pub supports_resume: bool,
-    pub supports_live_steering_while_running: bool,
-    pub supports_operator_interrupt: bool,
-    pub supports_durable_provider_session_ref: bool,
-    pub supports_structured_event_stream: bool,
-    pub supports_tool_call_events: bool,
-    pub supports_batch_fallback: bool,
-    pub session_provider_pinned: bool,
+    pub batch: Option<BatchCapabilities>,
+    pub session: Option<SessionCapabilities>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct BatchCapabilities {
+    pub fallback: BatchFallbackPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchFallbackPolicy {
+    None,
+    OnRateLimit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SessionCapabilities {
+    pub resume: SessionResumeKind,
+    pub control: SessionControlCapabilities,
+    pub events: SessionEventCapabilities,
+    pub affinity: SessionAffinity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionResumeKind {
+    None,
+    ProviderSessionRef,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SessionControlCapabilities {
+    pub live_steering_while_running: bool,
+    pub operator_interrupt: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SessionEventCapabilities {
+    pub structured_stream: bool,
+    pub tool_call_events: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionAffinity {
+    ProviderPinned,
+    Portable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackendMetadata {
+    pub name: &'static str,
+    pub provider_kind: ProviderKind,
+    pub transport_kind: TransportKind,
+    pub capabilities: ProviderCapabilities,
+}
+
+pub trait Backend {
+    fn metadata(&self) -> BackendMetadata;
+
+    fn name(&self) -> &'static str {
+        self.metadata().name
+    }
+
+    fn provider_kind(&self) -> ProviderKind {
+        self.metadata().provider_kind
+    }
+
+    fn transport_kind(&self) -> TransportKind {
+        self.metadata().transport_kind
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.metadata().capabilities
+    }
 }
 
 impl ProviderCapabilities {
     pub const fn batch_only() -> Self {
         Self {
-            supports_batch_mode: true,
-            supports_interactive_session_mode: false,
-            supports_resume: false,
-            supports_live_steering_while_running: false,
-            supports_operator_interrupt: false,
-            supports_durable_provider_session_ref: false,
-            supports_structured_event_stream: false,
-            supports_tool_call_events: false,
-            supports_batch_fallback: false,
-            session_provider_pinned: false,
+            batch: Some(BatchCapabilities {
+                fallback: BatchFallbackPolicy::None,
+            }),
+            session: None,
         }
+    }
+
+    pub const fn batch_fallback_chain() -> Self {
+        Self {
+            batch: Some(BatchCapabilities {
+                fallback: BatchFallbackPolicy::OnRateLimit,
+            }),
+            session: None,
+        }
+    }
+
+    pub const fn session_only() -> Self {
+        Self {
+            batch: None,
+            session: Some(SessionCapabilities {
+                resume: SessionResumeKind::None,
+                control: SessionControlCapabilities {
+                    live_steering_while_running: false,
+                    operator_interrupt: false,
+                },
+                events: SessionEventCapabilities {
+                    structured_stream: false,
+                    tool_call_events: false,
+                },
+                affinity: SessionAffinity::Portable,
+            }),
+        }
+    }
+
+    pub const fn with_resume(mut self) -> Self {
+        if let Some(session) = self.session.as_mut() {
+            session.resume = SessionResumeKind::ProviderSessionRef;
+        }
+        self
+    }
+
+    pub const fn with_live_steering(mut self) -> Self {
+        if let Some(session) = self.session.as_mut() {
+            session.control.live_steering_while_running = true;
+        }
+        self
+    }
+
+    pub const fn with_operator_interrupt(mut self) -> Self {
+        if let Some(session) = self.session.as_mut() {
+            session.control.operator_interrupt = true;
+        }
+        self
+    }
+
+    pub const fn with_durable_provider_session_ref(mut self) -> Self {
+        if let Some(session) = self.session.as_mut() {
+            session.resume = SessionResumeKind::ProviderSessionRef;
+        }
+        self
+    }
+
+    pub const fn with_structured_event_stream(mut self) -> Self {
+        if let Some(session) = self.session.as_mut() {
+            session.events.structured_stream = true;
+        }
+        self
+    }
+
+    pub const fn with_tool_call_events(mut self) -> Self {
+        if let Some(session) = self.session.as_mut() {
+            session.events.tool_call_events = true;
+        }
+        self
+    }
+
+    pub const fn provider_pinned_session(mut self) -> Self {
+        if let Some(session) = self.session.as_mut() {
+            session.affinity = SessionAffinity::ProviderPinned;
+        }
+        self
+    }
+
+    pub const fn session_turns_with_resume() -> Self {
+        Self::session_only()
+            .with_resume()
+            .with_durable_provider_session_ref()
+            .with_structured_event_stream()
+            .provider_pinned_session()
+    }
+
+    pub const fn session_jsonrpc() -> Self {
+        Self::session_turns_with_resume().with_operator_interrupt()
     }
 
     pub const fn batch_with_fallback() -> Self {
-        let mut caps = Self::batch_only();
-        caps.supports_batch_fallback = true;
-        caps
+        Self::batch_fallback_chain()
     }
 
     pub const fn copilot_acp() -> Self {
-        Self {
-            supports_batch_mode: true,
-            supports_interactive_session_mode: true,
-            supports_resume: true,
-            supports_live_steering_while_running: false,
-            supports_operator_interrupt: true,
-            supports_durable_provider_session_ref: true,
-            supports_structured_event_stream: true,
-            supports_tool_call_events: false,
-            supports_batch_fallback: false,
-            session_provider_pinned: true,
-        }
+        Self::session_jsonrpc()
+    }
+
+    pub const fn supports_batch_mode(&self) -> bool {
+        self.batch.is_some()
+    }
+
+    pub const fn supports_batch_fallback(&self) -> bool {
+        matches!(
+            self.batch,
+            Some(BatchCapabilities {
+                fallback: BatchFallbackPolicy::OnRateLimit
+            })
+        )
+    }
+
+    pub const fn supports_interactive_session_mode(&self) -> bool {
+        self.session.is_some()
+    }
+
+    pub const fn supports_resume(&self) -> bool {
+        matches!(
+            self.session,
+            Some(SessionCapabilities {
+                resume: SessionResumeKind::ProviderSessionRef,
+                ..
+            })
+        )
+    }
+
+    pub const fn supports_live_steering_while_running(&self) -> bool {
+        matches!(
+            self.session,
+            Some(SessionCapabilities {
+                control: SessionControlCapabilities {
+                    live_steering_while_running: true,
+                    ..
+                },
+                ..
+            })
+        )
+    }
+
+    pub const fn supports_operator_interrupt(&self) -> bool {
+        matches!(
+            self.session,
+            Some(SessionCapabilities {
+                control: SessionControlCapabilities {
+                    operator_interrupt: true,
+                    ..
+                },
+                ..
+            })
+        )
+    }
+
+    pub const fn supports_durable_provider_session_ref(&self) -> bool {
+        self.supports_resume()
+    }
+
+    pub const fn supports_structured_event_stream(&self) -> bool {
+        matches!(
+            self.session,
+            Some(SessionCapabilities {
+                events: SessionEventCapabilities {
+                    structured_stream: true,
+                    ..
+                },
+                ..
+            })
+        )
+    }
+
+    pub const fn supports_tool_call_events(&self) -> bool {
+        matches!(
+            self.session,
+            Some(SessionCapabilities {
+                events: SessionEventCapabilities {
+                    tool_call_events: true,
+                    ..
+                },
+                ..
+            })
+        )
+    }
+
+    pub const fn session_provider_pinned(&self) -> bool {
+        matches!(
+            self.session,
+            Some(SessionCapabilities {
+                affinity: SessionAffinity::ProviderPinned,
+                ..
+            })
+        )
     }
 }
 
 /// The batch execution lane for any AI agent provider.
-pub trait TurnRunner: Send + Sync {
+pub trait TurnRunner: Backend + Send + Sync {
     /// Execute a raw prompt against the LLM and return a standardized response.
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse>;
-
-    /// The display name of this agent.
-    fn name(&self) -> &'static str;
-
-    /// Stable provider identity.
-    fn provider_kind(&self) -> ProviderKind;
-
-    /// Concrete transport used for batch execution.
-    fn transport_kind(&self) -> TransportKind;
-
-    /// Honest capability report for this backend.
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::batch_only()
-    }
 
     /// Optional: Describe how to invoke this as a CLI command.
     fn planned_invocation(&self, _request: &LLMRequest) -> Option<RunnerInvocation> {
@@ -109,26 +324,16 @@ pub trait Servling: TurnRunner {}
 
 impl<T: TurnRunner + ?Sized> Servling for T {}
 
+impl Backend for Box<dyn Servling> {
+    fn metadata(&self) -> BackendMetadata {
+        (**self).metadata()
+    }
+}
+
 /// Implement TurnRunner for boxed trait objects to allow delegation.
 impl TurnRunner for Box<dyn Servling> {
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
         (**self).execute(request)
-    }
-
-    fn name(&self) -> &'static str {
-        (**self).name()
-    }
-
-    fn provider_kind(&self) -> ProviderKind {
-        (**self).provider_kind()
-    }
-
-    fn transport_kind(&self) -> TransportKind {
-        (**self).transport_kind()
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        (**self).capabilities()
     }
 
     fn planned_invocation(&self, request: &LLMRequest) -> Option<RunnerInvocation> {
@@ -238,19 +443,5 @@ fn is_claude_tier(model: &str) -> bool {
 
 /// Build a single Servling backend.
 pub fn build_servling(name: &str, command: Option<String>) -> Result<Box<dyn Servling>> {
-    match name {
-        "claude" => {
-            ClaudeAgent::check_available()?;
-            Ok(Box::new(ClaudeAgent::new(command, true)))
-        }
-        "codex" => {
-            CodexAgent::check_available()?;
-            Ok(Box::new(CodexAgent::new(command)))
-        }
-        "copilot" => {
-            CopilotAgent::check_available()?;
-            Ok(Box::new(CopilotAgent::new(command)))
-        }
-        other => anyhow::bail!("Unknown agent backend: {}", other),
-    }
+    crate::backend_registry::build_batch_backend(name, command)
 }

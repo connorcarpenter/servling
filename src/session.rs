@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use uuid::Uuid;
 
-use crate::core::{ProviderCapabilities, ProviderKind, TransportKind};
+use crate::core::{Backend, ProviderCapabilities, ProviderKind, TransportKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -214,12 +214,7 @@ pub trait InteractiveSession: Send + Sync {
     fn next_event(&self, timeout: Duration) -> Result<Option<SessionEvent>>;
 }
 
-pub trait SessionBackend: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn provider_kind(&self) -> ProviderKind;
-    fn transport_kind(&self) -> TransportKind;
-    fn capabilities(&self) -> ProviderCapabilities;
-
+pub trait SessionBackend: Backend + Send + Sync {
     fn start_session(&self, request: &SessionStartRequest) -> Result<Box<dyn InteractiveSession>>;
 
     fn resume_session(

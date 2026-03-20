@@ -8,6 +8,7 @@
 
 - **Batch / turn lane** via `TurnRunner` / `Servling`
 - **Interactive session lane** via `SessionBackend`
+- **Backend registry** via `BackendDescriptor` helpers for clean provider discovery and construction
 
 Built originally as the core engine for high-reliability agent tasks, it manages **streaming**, **timeouts**, **token usage tracking**, and **automatic fallback logic**. That batch lane remains intact. The session lane is additive and capability-based.
 
@@ -38,9 +39,9 @@ Built originally as the core engine for high-reliability agent tasks, it manages
 
 | Provider | Transport | Status |
 | :--- | :--- | :--- |
-| **Copilot** | ACP (`copilot --acp`) | Implemented |
+| **Copilot** | `cli_jsonrpc` over ACP (`copilot --acp`) | Implemented |
 | **Claude** | N/A | Batch only |
-| **Codex** | N/A | Batch only |
+| **Codex** | `cli_resumable_turns` via `codex exec resume --json` | Implemented |
 
 ---
 
@@ -56,19 +57,22 @@ servling = { path = "../servling" }
 ### Basic Usage
 
 ```rust
-use servling::{Servling, LLMRequest, build_servling};
+use servling::{build_servling, LLMRequest};
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
     // 1. Build a backend (or a chain of backends!)
-    let agent = build_servling("claude", None)?;
+    let agent = build_servling("codex", None)?;
 
     // 2. Prepare a request
     let request = LLMRequest {
         prompt: "Refactor this function for better performance.".to_string(),
         working_dir: PathBuf::from("."),
-        writable_roots: vec![PathBuf::from(".")],
-        model: Some("claude-3-5-sonnet".to_string()),
+        source_writable_roots: vec![PathBuf::from(".")],
+        runtime_writable_roots: Vec::new(),
+        runtime_env: Vec::new(),
+        runtime_profile: None,
+        model: None,
         max_runtime_seconds: 300,
         stream_output: true,
         input_file: None,
@@ -116,18 +120,21 @@ It can even calculate the estimated cost of your session and rate your efficienc
 
 ## 🛠️ Internal Architecture
 
-- **`core.rs`**: Batch lane traits plus provider/transport capability truth.
+- **`core.rs`**: Batch lane traits plus provider-neutral transport and capability truth.
+- **`backend_registry.rs`**: Declarative provider registry for batch/session construction.
 - **`runner.rs`**: Low-level CLI execution, streaming, and timeout logic.
 - **`coding_agent.rs`**: High-level orchestration and fallback chains.
 - **`session.rs`**: Interactive session traits, handles, and bounded event model.
 - **`copilot_acp.rs`**: Copilot ACP session backend over stdio JSON-RPC.
+- **`codex_session.rs`**: Codex resumable-turn session backend over `codex exec --json`.
 - **`token_usage.rs`**: Regex-powered parsing for AI provider output formats.
 
 ## Session Policy
 
 - Batch fallback is still valid and automatic.
 - Interactive sessions are provider-pinned after creation.
-- Capability differences are explicit through `ProviderCapabilities`.
+- Capability differences are explicit through structured `ProviderCapabilities { batch, session }`.
+- Provider selection is centralized through `BackendDescriptor` registry helpers instead of scattered factory switches.
 - `servling` owns provider/session transport behavior, not durable operator truth.
 - `workroach` remains the intended future live process host for coding sessions.
 - `orchlord` should only persist coarse provider/transport/session-ref truth, not ACP protocol details.

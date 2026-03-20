@@ -112,9 +112,9 @@ impl CopilotAcpBackend {
         let (command_tx, command_rx) = tokio_mpsc::unbounded_channel();
         let handle_state = Arc::new(Mutex::new(ProviderSessionHandle::new(
             ProviderKind::Copilot,
-            TransportKind::CopilotAcp,
+            TransportKind::CliJsonRpc,
             load_session_ref.map(str::to_string),
-            ProviderCapabilities::copilot_acp(),
+            ProviderCapabilities::session_jsonrpc(),
             SessionRuntimeStatus::Starting,
         )));
 
@@ -155,7 +155,7 @@ impl CopilotAcpBackend {
 
 impl SessionBackend for CopilotAcpBackend {
     fn name(&self) -> &'static str {
-        "copilot_acp"
+        "copilot"
     }
 
     fn provider_kind(&self) -> ProviderKind {
@@ -163,11 +163,11 @@ impl SessionBackend for CopilotAcpBackend {
     }
 
     fn transport_kind(&self) -> TransportKind {
-        TransportKind::CopilotAcp
+        TransportKind::CliJsonRpc
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::copilot_acp()
+        ProviderCapabilities::session_jsonrpc()
     }
 
     fn start_session(&self, request: &SessionStartRequest) -> Result<Box<dyn InteractiveSession>> {
@@ -387,9 +387,9 @@ fn run_worker(
 
         let started_handle = ProviderSessionHandle::new(
             ProviderKind::Copilot,
-            TransportKind::CopilotAcp,
+            TransportKind::CliJsonRpc,
             Some(session_id.0.to_string()),
-            ProviderCapabilities::copilot_acp(),
+            ProviderCapabilities::session_jsonrpc(),
             SessionRuntimeStatus::Ready,
         );
         *handle_state.lock().unwrap() = started_handle.clone();
@@ -1071,15 +1071,15 @@ mod tests {
         let backend = CopilotAcpBackend::with_io_factory(None, Arc::new(FakeAcpIoFactory));
         let caps = backend.capabilities();
 
-        assert!(caps.supports_batch_mode);
-        assert!(caps.supports_interactive_session_mode);
-        assert!(caps.supports_resume);
-        assert!(caps.supports_operator_interrupt);
-        assert!(caps.supports_durable_provider_session_ref);
-        assert!(caps.supports_structured_event_stream);
-        assert!(!caps.supports_live_steering_while_running);
-        assert!(!caps.supports_batch_fallback);
-        assert!(caps.session_provider_pinned);
+        assert!(!caps.supports_batch_mode());
+        assert!(caps.supports_interactive_session_mode());
+        assert!(caps.supports_resume());
+        assert!(caps.supports_operator_interrupt());
+        assert!(caps.supports_durable_provider_session_ref());
+        assert!(caps.supports_structured_event_stream());
+        assert!(!caps.supports_live_steering_while_running());
+        assert!(!caps.supports_batch_fallback());
+        assert!(caps.session_provider_pinned());
     }
 
     #[test]
@@ -1091,7 +1091,7 @@ mod tests {
 
         let handle = session.handle();
         assert_eq!(handle.provider_kind, ProviderKind::Copilot);
-        assert_eq!(handle.transport_kind, TransportKind::CopilotAcp);
+        assert_eq!(handle.transport_kind, TransportKind::CliJsonRpc);
         assert_eq!(
             handle.provider_session_ref.as_deref(),
             Some("fake-session-1")
@@ -1214,7 +1214,7 @@ mod tests {
             "events after interrupt: {seen_events:?}"
         );
         assert_eq!(handle.provider_kind, ProviderKind::Copilot);
-        assert_eq!(handle.transport_kind, TransportKind::CopilotAcp);
+        assert_eq!(handle.transport_kind, TransportKind::CliJsonRpc);
     }
 
     struct StubRunner {
@@ -1285,7 +1285,7 @@ mod tests {
             .expect("batch fallback succeeds");
 
         assert_eq!(response.text, "second");
-        assert!(agent.capabilities().supports_batch_fallback);
+        assert!(agent.capabilities().supports_batch_fallback());
     }
 
     // -----------------------------------------------------------------------
@@ -1329,7 +1329,10 @@ mod tests {
                 }
             }
         }
-        eprintln!("[probe] session started; total startup events: {}", startup_events.len());
+        eprintln!(
+            "[probe] session started; total startup events: {}",
+            startup_events.len()
+        );
 
         // Send a simple non-destructive turn that needs no tool use
         let stop_reason = session
@@ -1353,10 +1356,7 @@ mod tests {
                 _ => break,
             }
         }
-        eprintln!(
-            "[probe] turn events drained: {} events",
-            turn_events.len()
-        );
+        eprintln!("[probe] turn events drained: {} events", turn_events.len());
 
         // Assertions
         assert_eq!(
@@ -1370,7 +1370,10 @@ mod tests {
                 | SessionStopReason::MaxTokens
                 | SessionStopReason::Unknown(_)
         );
-        assert!(ok, "stop_reason must be a recognized terminal reason; got: {stop_reason:?}");
+        assert!(
+            ok,
+            "stop_reason must be a recognized terminal reason; got: {stop_reason:?}"
+        );
     }
 
     /// Interrupt probe: starts a real session, sends a long-running turn,
@@ -1465,16 +1468,19 @@ mod tests {
             }
         }
 
-        let stop_reason = join
-            .join()
-            .expect("thread join")
-            .expect("turn returned Ok");
+        let stop_reason = join.join().expect("thread join").expect("turn returned Ok");
         eprintln!("[probe/interrupt] final stop_reason: {stop_reason:?}");
-        eprintln!("[probe/interrupt] post-interrupt events ({}):", post_events.len());
+        eprintln!(
+            "[probe/interrupt] post-interrupt events ({}):",
+            post_events.len()
+        );
         for e in &post_events {
             eprintln!("  {e}");
         }
-        eprintln!("[probe/interrupt] final session status: {:?}", session.status());
+        eprintln!(
+            "[probe/interrupt] final session status: {:?}",
+            session.status()
+        );
 
         // After interrupt + turn completion the session must be usable again
         assert!(
