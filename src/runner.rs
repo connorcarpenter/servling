@@ -8,6 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::core::OutcomeClassification;
@@ -16,6 +17,28 @@ use crate::token_usage::TokenUsage;
 struct StreamLine {
     text: String,
     newline: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct RunnerMetadata {
+    program: String,
+    args: Vec<String>,
+    working_dir: String,
+    explicit_env_keys: Vec<String>,
+    auth_basis: RunnerAuthBasis,
+}
+
+#[derive(Debug, Serialize)]
+struct RunnerAuthBasis {
+    home: Option<String>,
+    xdg_config_home: Option<String>,
+    xdg_cache_home: Option<String>,
+    xdg_data_home: Option<String>,
+    copilot_github_token_present: bool,
+    gh_token_present: bool,
+    github_token_present: bool,
+    copilot_config_dir: Option<String>,
+    copilot_config_dir_exists: bool,
 }
 
 fn format_stream_line(line: &str) -> Option<StreamLine> {
@@ -360,6 +383,12 @@ pub fn run_cli_runner(
     let output_dir = mission_dir.join("RUNNER_OUTPUT");
     let _ = std::fs::create_dir_all(&output_dir);
 
+    let metadata = build_runner_metadata(program, &args, config);
+    if let Ok(metadata_json) = serde_json::to_string_pretty(&metadata) {
+        let metadata_path = output_dir.join("runner_metadata.json");
+        let _ = std::fs::write(&metadata_path, metadata_json);
+    }
+
     let stdout_path = if !output.stdout.is_empty() {
         let path = output_dir.join("runner_stdout.txt");
         let _ = std::fs::write(&path, &output.stdout);
@@ -399,6 +428,66 @@ pub fn run_cli_runner(
         stderr_path,
         token_usage,
     })
+}
+
+fn build_runner_metadata(program: &str, args: &[&str], config: &CliRunnerConfig) -> RunnerMetadata {
+    let explicit_env_keys = config.env.iter().map(|(key, _)| key.clone()).collect();
+    RunnerMetadata {
+        program: program.to_string(),
+        args: args.iter().map(|arg| (*arg).to_string()).collect(),
+        working_dir: config.working_dir.display().to_string(),
+        explicit_env_keys,
+        auth_basis: collect_auth_basis(program, args),
+    }
+}
+
+fn collect_auth_basis(program: &str, args: &[&str]) -> RunnerAuthBasis {
+    let home = std::env::var("HOME").ok();
+    let xdg_config_home = std::env::var("XDG_CONFIG_HOME").ok();
+    let xdg_cache_home = std::env::var("XDG_CACHE_HOME").ok();
+    let xdg_data_home = std::env::var("XDG_DATA_HOME").ok();
+    let copilot_config_dir = if program == "copilot" {
+        resolve_copilot_config_dir(args, home.as_deref())
+    } else {
+        None
+    };
+    let copilot_config_dir_exists = copilot_config_dir
+        .as_ref()
+        .map(|dir| Path::new(dir).exists())
+        .unwrap_or(false);
+
+    RunnerAuthBasis {
+        home,
+        xdg_config_home,
+        xdg_cache_home,
+        xdg_data_home,
+        copilot_github_token_present: std::env::var_os("COPILOT_GITHUB_TOKEN").is_some(),
+        gh_token_present: std::env::var_os("GH_TOKEN").is_some(),
+        github_token_present: std::env::var_os("GITHUB_TOKEN").is_some(),
+        copilot_config_dir,
+        copilot_config_dir_exists,
+    }
+}
+
+fn resolve_copilot_config_dir(args: &[&str], home: Option<&str>) -> Option<String> {
+    if let Some(config_dir) = find_flag_value(args, "--config-dir") {
+        return Some(config_dir.to_string());
+    }
+    home.map(|home| format!("{home}/.copilot"))
+}
+
+fn find_flag_value<'a>(args: &'a [&'a str], flag: &str) -> Option<&'a str> {
+    let mut iter = args.iter().copied();
+    while let Some(arg) = iter.next() {
+        if arg == flag {
+            return iter.next();
+        }
+        let prefix = format!("{flag}=");
+        if let Some(value) = arg.strip_prefix(&prefix) {
+            return Some(value);
+        }
+    }
+    None
 }
 
 fn is_rate_limited(output: &std::process::Output) -> bool {
@@ -454,5 +543,23 @@ mod tests {
     fn test_rate_limit_detection() {
         let output = make_output("You've hit your limit", "");
         assert!(is_rate_limited(&output));
+    }
+
+    #[test]
+    fn test_find_flag_value_supports_split_and_equals_forms() {
+        let args = ["--config-dir", "/tmp/copilot"];
+        assert_eq!(find_flag_value(&args, "--config-dir"), Some("/tmp/copilot"));
+
+        let args = ["--config-dir=/tmp/copilot"];
+        assert_eq!(find_flag_value(&args, "--config-dir"), Some("/tmp/copilot"));
+    }
+
+    #[test]
+    fn test_resolve_copilot_config_dir_defaults_to_home() {
+        let args: [&str; 0] = [];
+        assert_eq!(
+            resolve_copilot_config_dir(&args, Some("/home/tester")),
+            Some("/home/tester/.copilot".to_string())
+        );
     }
 }
