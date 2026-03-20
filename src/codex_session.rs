@@ -181,53 +181,20 @@ impl CodexSession {
     }
 
     fn execute_codex_turn(&self, message: &str) -> Result<std::process::Output> {
-        let mut cmd = if let Some(custom) = self.command.clone() {
-            let mut parts = custom.split_whitespace();
-            let Some(program) = parts.next() else {
-                bail!("Codex session command is empty");
-            };
-            let mut command = Command::new(program);
-            command.args(parts);
-            command
-        } else {
-            Command::new("codex")
-        };
-
         let provider_session_ref = self
             .handle_state
             .lock()
             .unwrap()
             .provider_session_ref
             .clone();
-        match provider_session_ref.as_deref() {
-            Some(session_id) => {
-                cmd.arg("exec").arg("resume").arg(session_id);
-            }
-            None => {
-                cmd.arg("exec");
-            }
-        }
-
-        cmd.arg("--json")
-            .arg("--skip-git-repo-check")
-            .arg("-C")
-            .arg(&self.working_dir)
-            .arg("-c")
-            .arg("approval_policy=\"never\"")
-            .arg("-c")
-            .arg("sandbox_mode=\"workspace-write\"");
-
-        for root in dedup_roots(&self.working_dir, &self.writable_roots) {
-            if root != self.working_dir {
-                cmd.arg("--add-dir").arg(root);
-            }
-        }
-
-        if let Some(model) = self.model.as_deref() {
-            cmd.arg("--model").arg(model);
-        }
-
-        cmd.arg(message);
+        let mut cmd = build_turn_command(
+            self.command.as_deref(),
+            provider_session_ref.as_deref(),
+            &self.working_dir,
+            &self.writable_roots,
+            self.model.as_deref(),
+            message,
+        )?;
         cmd.output().context("failed to run Codex session turn")
     }
 
@@ -385,6 +352,66 @@ fn codex_home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".codex"))
 }
 
+/// Build the `codex` command for a single turn.
+///
+/// Extracted for testability.  The split between new-session and resume-session
+/// invocations matters because `codex exec resume` does **not** accept `-C` or
+/// `--add-dir` — those flags exist only on the top-level `codex exec` subcommand.
+fn build_turn_command(
+    custom_command: Option<&str>,
+    provider_session_ref: Option<&str>,
+    working_dir: &Path,
+    writable_roots: &[PathBuf],
+    model: Option<&str>,
+    message: &str,
+) -> Result<Command> {
+    let mut cmd = if let Some(custom) = custom_command {
+        let mut parts = custom.split_whitespace();
+        let Some(program) = parts.next() else {
+            bail!("Codex session command is empty");
+        };
+        let mut command = Command::new(program);
+        command.args(parts);
+        command
+    } else {
+        Command::new("codex")
+    };
+
+    let is_resume = match provider_session_ref {
+        Some(session_id) => {
+            cmd.arg("exec").arg("resume").arg(session_id);
+            true
+        }
+        None => {
+            cmd.arg("exec");
+            false
+        }
+    };
+
+    cmd.arg("--json")
+        .arg("--skip-git-repo-check")
+        .arg("-c")
+        .arg("approval_policy=\"never\"")
+        .arg("-c")
+        .arg("sandbox_mode=\"workspace-write\"");
+
+    if !is_resume {
+        cmd.arg("-C").arg(working_dir);
+        for root in dedup_roots(working_dir, writable_roots) {
+            if root != working_dir {
+                cmd.arg("--add-dir").arg(root);
+            }
+        }
+    }
+
+    if let Some(model) = model {
+        cmd.arg("--model").arg(model);
+    }
+
+    cmd.arg(message);
+    Ok(cmd)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,5 +434,178 @@ mod tests {
         );
         assert_eq!(roots[0], working_dir);
         assert_eq!(roots.len(), 2);
+    }
+
+    /// New sessions must pass `-C <working_dir>` to give Codex a working root.
+    #[test]
+    fn new_session_command_includes_working_dir_flag() {
+        let working_dir = PathBuf::from("/tmp/ws");
+        let cmd = build_turn_command(
+            None,
+            None, // no session ref → new session
+            &working_dir,
+            &[],
+            None,
+            "hello",
+        )
+        .unwrap();
+        let args: Vec<_> = cmd.get_args().collect();
+        let args_str: Vec<_> = args.iter().map(|a| a.to_string_lossy()).collect();
+        assert!(
+            args_str.contains(&"-C".into()),
+            "new session must include -C flag; got: {args_str:?}"
+        );
+        assert!(
+            args_str.contains(&working_dir.display().to_string().into()),
+            "new session must include working_dir; got: {args_str:?}"
+        );
+        // Must NOT contain "resume"
+        assert!(
+            !args_str.contains(&"resume".into()),
+            "new session must not contain 'resume'; got: {args_str:?}"
+        );
+    }
+
+    /// Resume sessions must NOT pass `-C` — `codex exec resume` rejects that flag.
+    #[test]
+    fn resume_command_omits_working_dir_flag() {
+        let working_dir = PathBuf::from("/tmp/ws");
+        let session_id = "019d0c92-30a3-7e33-ae3c-6bf2c8dca253";
+        let cmd = build_turn_command(
+            None,
+            Some(session_id), // resume session
+            &working_dir,
+            &[PathBuf::from("/tmp/extra")],
+            None,
+            "hello",
+        )
+        .unwrap();
+        let args: Vec<_> = cmd.get_args().collect();
+        let args_str: Vec<_> = args.iter().map(|a| a.to_string_lossy()).collect();
+        assert!(
+            !args_str.contains(&"-C".into()),
+            "resume must NOT include -C flag; got: {args_str:?}"
+        );
+        assert!(
+            !args_str.contains(&"--add-dir".into()),
+            "resume must NOT include --add-dir; got: {args_str:?}"
+        );
+        assert!(
+            args_str.contains(&"resume".into()),
+            "resume must include 'resume' subcommand; got: {args_str:?}"
+        );
+        assert!(
+            args_str.contains(&session_id.into()),
+            "resume must include session_id; got: {args_str:?}"
+        );
+    }
+
+    /// Extra writable roots are passed as --add-dir for new sessions only.
+    #[test]
+    fn new_session_with_extra_roots_includes_add_dir() {
+        let working_dir = PathBuf::from("/tmp/ws");
+        let extra = PathBuf::from("/tmp/extra");
+        let cmd = build_turn_command(
+            None,
+            None,
+            &working_dir,
+            &[extra.clone()],
+            None,
+            "hello",
+        )
+        .unwrap();
+        let args: Vec<_> = cmd.get_args().collect();
+        let args_str: Vec<_> = args.iter().map(|a| a.to_string_lossy()).collect();
+        assert!(
+            args_str.contains(&"--add-dir".into()),
+            "new session with extra roots must include --add-dir; got: {args_str:?}"
+        );
+        assert!(
+            args_str.contains(&extra.display().to_string().into()),
+            "new session must include extra root path; got: {args_str:?}"
+        );
+    }
+
+    /// Real end-to-end Codex probe — basic turn + resume.
+    ///
+    /// Requires: `codex` CLI available in PATH and authenticated via `~/.codex/auth.json`.
+    /// Run with:
+    ///   cargo test -p servling real_codex -- --ignored --nocapture
+    ///
+    /// Auth: Codex uses OAuth tokens stored in `~/.codex/auth.json` (not env vars).
+    /// No `OPENAI_API_KEY` or `CODEX_API_KEY` env vars are needed.
+    #[test]
+    #[ignore = "requires live Codex CLI + ~/.codex/auth.json OAuth tokens"]
+    fn real_codex_probe_basic_turn_and_resume() {
+        use crate::session::{SessionBackend, SessionStartRequest, SessionResumeRequest};
+        use std::time::Duration;
+
+        let backend = CodexSessionBackend::new(None);
+        let working_dir = std::env::temp_dir().join("codex-probe-servling");
+        std::fs::create_dir_all(&working_dir).expect("probe working dir should be creatable");
+
+        // Scenario 1: new session turn
+        let start_req = SessionStartRequest {
+            working_dir: working_dir.clone(),
+            writable_roots: vec![],
+            model: None,
+        };
+        let session = backend.start_session(&start_req).expect("start_session should succeed");
+        let stop = session
+            .send_user_turn(&crate::session::UserTurnRequest {
+                message: "Reply with exactly: PROBE_OK".to_string(),
+            })
+            .expect("send_user_turn should succeed");
+
+        // Drain events
+        let mut events = Vec::new();
+        while let Ok(Some(ev)) = session.next_event(Duration::from_millis(100)) {
+            events.push(ev);
+        }
+
+        let handle = session.handle();
+        let session_ref = handle.provider_session_ref.clone().expect("should have session ref");
+        println!("session_ref: {session_ref}");
+        println!("stop_reason: {stop:?}");
+        println!("events: {events:?}");
+
+        // Verify turn completed and got content
+        let has_content = events.iter().any(|e| {
+            matches!(e, SessionEvent::ContentChunk { kind: SessionContentKind::Assistant, .. })
+        });
+        assert!(has_content, "expected assistant content chunk");
+        assert!(matches!(stop, crate::session::SessionStopReason::EndTurn));
+
+        // Scenario 4: resume with the session_ref from above
+        let resume_req = SessionResumeRequest {
+            working_dir: working_dir.clone(),
+            writable_roots: vec![],
+            model: None,
+            provider_session_ref: session_ref.clone(),
+        };
+        let resumed = backend.resume_session(&resume_req).expect("resume_session should succeed");
+        let stop2 = resumed
+            .send_user_turn(&crate::session::UserTurnRequest {
+                message: "Reply with exactly: RESUME_OK".to_string(),
+            })
+            .expect("resumed send_user_turn should succeed");
+
+        // Drain resume events
+        let mut resume_events = Vec::new();
+        while let Ok(Some(ev)) = resumed.next_event(Duration::from_millis(100)) {
+            resume_events.push(ev);
+        }
+
+        println!("resume stop_reason: {stop2:?}");
+        println!("resume events: {resume_events:?}");
+
+        let resumed_handle = resumed.handle();
+        assert_eq!(
+            resumed_handle.provider_session_ref.as_deref(),
+            Some(session_ref.as_str()),
+            "resume must keep the same session_ref"
+        );
+
+        let _ = std::fs::remove_dir_all(working_dir);
     }
 }

@@ -38,7 +38,8 @@ pub use copilot_agent::CopilotAgent;
 pub use runner::{run_cli_runner, CliRunnerConfig, CliRunnerOutcome};
 pub use session::{
     ProviderSessionHandle, SessionBackend, SessionBackendBox, SessionEvent, SessionRuntimeStatus,
-    SessionStartRequest, SessionStopReason, SessionTransportError, UserTurnRequest,
+    SessionResumeRequest, SessionStartRequest, SessionStopReason, SessionTransportError,
+    UserTurnRequest,
 };
 pub use token_usage::{
     EfficiencyRating, MissionTokenStats, MissionTypeStats, SessionTokenStats, TokenUsage,
