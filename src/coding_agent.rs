@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use anyhow::{bail, Result};
 
+use crate::backend_policy::{availability_for_request, record_outcome_for_request};
 use crate::backend_registry::{
     build_batch_backend, build_session_backend_by_name, default_batch_backend_names,
     find_backend_descriptor,
@@ -70,6 +71,7 @@ impl CodingAgent {
 
     fn should_fallback(classification: OutcomeClassification) -> bool {
         classification.should_fallback()
+            || matches!(classification, OutcomeClassification::EnvironmentError)
     }
 }
 
@@ -116,17 +118,46 @@ impl Backend for CodingAgent {
 
 impl TurnRunner for CodingAgent {
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
+        let mut failures = Vec::new();
+
         loop {
             let (idx, backend) = {
                 let current = *self.current_index.lock().unwrap();
                 if current >= self.backends.len() {
-                    bail!("No backends available in CodingAgent");
+                    bail!(format_failure_chain(&failures));
                 }
                 (current, &self.backends[current])
             };
 
+            let availability = availability_for_request(request, backend.name());
+            if !availability.allowed {
+                let reason = availability
+                    .reason
+                    .unwrap_or_else(|| "backend blocked by policy".to_string());
+                failures.push(format!("{}: skipped ({reason})", backend.name()));
+                let mut current = self.current_index.lock().unwrap();
+                if *current == idx {
+                    *current += 1;
+                    if *current >= self.backends.len() {
+                        bail!(format_failure_chain(&failures));
+                    }
+                    log::warn!(
+                        "Skipping backend {}: {}",
+                        backend.name(),
+                        reason
+                    );
+                }
+                continue;
+            }
+
             match backend.execute(request) {
                 Ok(resp) if CodingAgent::should_fallback(resp.classification) => {
+                    record_outcome_for_request(request, backend.name(), resp.classification);
+                    failures.push(format_response_failure(
+                        backend.name(),
+                        resp.classification,
+                        &resp.text,
+                    ));
                     let mut current = self.current_index.lock().unwrap();
                     if *current == idx {
                         *current += 1;
@@ -134,19 +165,24 @@ impl TurnRunner for CodingAgent {
                             return Ok(resp);
                         }
                         log::warn!(
-                            "Backend {} rate limited. Falling back to next.",
-                            backend.name()
+                            "Backend {} returned {:?}. Falling back to next.",
+                            backend.name(),
+                            resp.classification
                         );
                     }
                     continue;
                 }
-                Ok(resp) => return Ok(resp),
+                Ok(resp) => {
+                    record_outcome_for_request(request, backend.name(), resp.classification);
+                    return Ok(resp);
+                }
                 Err(err) => {
+                    failures.push(format!("{}: {}", backend.name(), err));
                     let mut current = self.current_index.lock().unwrap();
                     if *current == idx {
                         *current += 1;
                         if *current >= self.backends.len() {
-                            return Err(err);
+                            bail!(format_failure_chain(&failures));
                         }
                         log::warn!("Backend {} failed: {}. Falling back.", backend.name(), err);
                     }
@@ -161,6 +197,27 @@ impl TurnRunner for CodingAgent {
         self.backends
             .get(idx)
             .and_then(|b| b.planned_invocation(request))
+    }
+}
+
+fn format_failure_chain(failures: &[String]) -> String {
+    if failures.is_empty() {
+        "No backends available in CodingAgent".to_string()
+    } else {
+        format!("No backends available in CodingAgent: {}", failures.join(" | "))
+    }
+}
+
+fn format_response_failure(
+    backend_name: &str,
+    classification: OutcomeClassification,
+    text: &str,
+) -> String {
+    let excerpt = text.lines().next().unwrap_or("").trim();
+    if excerpt.is_empty() {
+        format!("{backend_name}: {classification:?}")
+    } else {
+        format!("{backend_name}: {classification:?} ({excerpt})")
     }
 }
 
@@ -205,4 +262,239 @@ pub fn build_session_backend(candidates: Vec<AgentCandidate>) -> Result<SessionB
     }
 
     bail!("No interactive session backend available in candidate set")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{BatchFallbackPolicy, BatchCapabilities};
+    use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    struct StubBackend {
+        name: &'static str,
+        classification: OutcomeClassification,
+        text: &'static str,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl Backend for StubBackend {
+        fn metadata(&self) -> BackendMetadata {
+            BackendMetadata {
+                name: self.name,
+                provider_kind: ProviderKind::Composite,
+                transport_kind: TransportKind::CliBatch,
+                capabilities: ProviderCapabilities {
+                    batch: Some(BatchCapabilities {
+                        fallback: BatchFallbackPolicy::None,
+                    }),
+                    session: None,
+                },
+            }
+        }
+    }
+
+    impl TurnRunner for StubBackend {
+        fn execute(&self, _request: &LLMRequest) -> Result<LLMResponse> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(LLMResponse {
+                text: self.text.to_string(),
+                classification: self.classification,
+                exit_code: Some(if self.classification == OutcomeClassification::Ok {
+                    0
+                } else {
+                    1
+                }),
+                token_usage: None,
+                elapsed_seconds: 0.0,
+                stdout_path: None,
+                stderr_path: None,
+            })
+        }
+    }
+
+    #[test]
+    fn coding_agent_falls_back_when_first_backend_is_rate_limited() {
+        let temp = tempdir().expect("temp dir");
+        let first_calls = Arc::new(AtomicUsize::new(0));
+        let second_calls = Arc::new(AtomicUsize::new(0));
+
+        let agent = CodingAgent::builder()
+            .register(Box::new(StubBackend {
+                name: "first",
+                classification: OutcomeClassification::RateLimited,
+                text: "rate limited",
+                calls: first_calls.clone(),
+            }))
+            .register(Box::new(StubBackend {
+                name: "second",
+                classification: OutcomeClassification::Ok,
+                text: "fallback success",
+                calls: second_calls.clone(),
+            }))
+            .build()
+            .expect("build coding agent");
+
+        let request = LLMRequest {
+            prompt: "hello".into(),
+            working_dir: temp.path().to_path_buf(),
+            source_writable_roots: vec![],
+            runtime_writable_roots: vec![temp.path().to_path_buf()],
+            runtime_env: vec![],
+            runtime_profile: None,
+            model: None,
+            max_runtime_seconds: 30,
+            stream_output: false,
+            input_file: None,
+        };
+
+        let response = agent.execute(&request).expect("fallback response");
+        assert_eq!(response.classification, OutcomeClassification::Ok);
+        assert_eq!(response.text, "fallback success");
+        assert_eq!(first_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(second_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn coding_agent_falls_back_when_first_backend_has_environment_error() {
+        let temp = tempdir().expect("temp dir");
+        let first_calls = Arc::new(AtomicUsize::new(0));
+        let second_calls = Arc::new(AtomicUsize::new(0));
+
+        let agent = CodingAgent::builder()
+            .register(Box::new(StubBackend {
+                name: "first",
+                classification: OutcomeClassification::EnvironmentError,
+                text: "auth missing",
+                calls: first_calls.clone(),
+            }))
+            .register(Box::new(StubBackend {
+                name: "second",
+                classification: OutcomeClassification::Ok,
+                text: "fallback success",
+                calls: second_calls.clone(),
+            }))
+            .build()
+            .expect("build coding agent");
+
+        let request = LLMRequest {
+            prompt: "hello".into(),
+            working_dir: temp.path().to_path_buf(),
+            source_writable_roots: vec![],
+            runtime_writable_roots: vec![temp.path().to_path_buf()],
+            runtime_env: vec![],
+            runtime_profile: None,
+            model: None,
+            max_runtime_seconds: 30,
+            stream_output: false,
+            input_file: None,
+        };
+
+        let response = agent.execute(&request).expect("fallback response");
+        assert_eq!(response.classification, OutcomeClassification::Ok);
+        assert_eq!(response.text, "fallback success");
+        assert_eq!(first_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(second_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn coding_agent_skips_provider_disabled_by_policy_file() {
+        let temp = tempdir().expect("temp dir");
+        fs::write(
+            temp.path().join("servling_backend_policy.json"),
+            r#"{"backends":{"first":{"disabled":true,"reason":"operator reported exhausted"}}}"#,
+        )
+        .expect("write policy");
+
+        let first_calls = Arc::new(AtomicUsize::new(0));
+        let second_calls = Arc::new(AtomicUsize::new(0));
+
+        let agent = CodingAgent::builder()
+            .register(Box::new(StubBackend {
+                name: "first",
+                classification: OutcomeClassification::Ok,
+                text: "should not run",
+                calls: first_calls.clone(),
+            }))
+            .register(Box::new(StubBackend {
+                name: "second",
+                classification: OutcomeClassification::Ok,
+                text: "fallback success",
+                calls: second_calls.clone(),
+            }))
+            .build()
+            .expect("build coding agent");
+
+        let request = LLMRequest {
+            prompt: "hello".into(),
+            working_dir: temp.path().to_path_buf(),
+            source_writable_roots: vec![],
+            runtime_writable_roots: vec![temp.path().to_path_buf()],
+            runtime_env: vec![],
+            runtime_profile: None,
+            model: None,
+            max_runtime_seconds: 30,
+            stream_output: false,
+            input_file: None,
+        };
+
+        let response = agent.execute(&request).expect("response");
+        assert_eq!(response.classification, OutcomeClassification::Ok);
+        assert_eq!(response.text, "fallback success");
+        assert_eq!(first_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(second_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn coding_agent_reports_full_failure_chain_when_all_backends_fail() {
+        let temp = tempdir().expect("temp dir");
+        fs::write(
+            temp.path().join("servling_backend_policy.json"),
+            r#"{"backends":{"third":{"disabled":true,"reason":"known exhausted"}}}"#,
+        )
+        .expect("write policy");
+
+        let agent = CodingAgent::builder()
+            .register(Box::new(StubBackend {
+                name: "first",
+                classification: OutcomeClassification::EnvironmentError,
+                text: "auth missing",
+                calls: Arc::new(AtomicUsize::new(0)),
+            }))
+            .register(Box::new(StubBackend {
+                name: "second",
+                classification: OutcomeClassification::RateLimited,
+                text: "rate limited",
+                calls: Arc::new(AtomicUsize::new(0)),
+            }))
+            .register(Box::new(StubBackend {
+                name: "third",
+                classification: OutcomeClassification::Ok,
+                text: "unused",
+                calls: Arc::new(AtomicUsize::new(0)),
+            }))
+            .build()
+            .expect("build coding agent");
+
+        let request = LLMRequest {
+            prompt: "hello".into(),
+            working_dir: temp.path().to_path_buf(),
+            source_writable_roots: vec![],
+            runtime_writable_roots: vec![temp.path().to_path_buf()],
+            runtime_env: vec![],
+            runtime_profile: None,
+            model: None,
+            max_runtime_seconds: 30,
+            stream_output: false,
+            input_file: None,
+        };
+
+        let err = agent.execute(&request).expect_err("all backends should fail");
+        let message = err.to_string();
+        assert!(message.contains("first: EnvironmentError"));
+        assert!(message.contains("second: RateLimited"));
+        assert!(message.contains("third: skipped (known exhausted)"));
+    }
 }

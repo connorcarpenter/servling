@@ -372,13 +372,7 @@ pub fn run_cli_runner(
 
     let elapsed = start.elapsed().as_secs_f64();
     let exit_code = output.status.code();
-    let classification = if output.status.success() {
-        OutcomeClassification::Ok
-    } else if is_rate_limited(&output) {
-        OutcomeClassification::RateLimited
-    } else {
-        OutcomeClassification::Failed
-    };
+    let classification = classify_process_output(&output);
 
     let output_dir = mission_dir.join("RUNNER_OUTPUT");
     let _ = std::fs::create_dir_all(&output_dir);
@@ -501,20 +495,62 @@ fn is_rate_limited(output: &std::process::Output) -> bool {
         "ratelimit",
         "hit your limit",
         "you've hit your limit",
+        "reached your limit",
+        "limit reached",
+        "message limit",
+        "usage exhausted",
         "quota exceeded",
         "insufficient credits",
+        "credit balance is too low",
         "out of credits",
         "payment required",
         "billing",
         "too many requests",
         "429",
         "try again later",
+        "try again after",
         "resets ",
+        "reset every five hours",
         "usage limit",
         "api limit",
     ];
 
     patterns.iter().any(|p| combined.contains(p))
+}
+
+fn is_environment_failure(output: &std::process::Output) -> bool {
+    let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+    let combined = format!("{} {}", stdout, stderr);
+
+    let patterns = [
+        "no authentication information found",
+        "to authenticate",
+        "failed to connect to websocket",
+        "stream disconnected before completion",
+        "operation not permitted",
+        "error sending request for url",
+        "network is unreachable",
+        "connection refused",
+        "connection timed out",
+        "dns",
+        "temporary failure in name resolution",
+        "could not resolve host",
+    ];
+
+    patterns.iter().any(|p| combined.contains(p))
+}
+
+fn classify_process_output(output: &std::process::Output) -> OutcomeClassification {
+    if output.status.success() {
+        OutcomeClassification::Ok
+    } else if is_rate_limited(output) {
+        OutcomeClassification::RateLimited
+    } else if is_environment_failure(output) {
+        OutcomeClassification::EnvironmentError
+    } else {
+        OutcomeClassification::Failed
+    }
 }
 
 fn truncate_line(input: &str, max_chars: usize) -> String {
@@ -543,6 +579,44 @@ mod tests {
     fn test_rate_limit_detection() {
         let output = make_output("You've hit your limit", "");
         assert!(is_rate_limited(&output));
+    }
+
+    #[test]
+    fn test_rate_limit_detection_for_claude_usage_limit_wording() {
+        let output = make_output(
+            "",
+            "Message limit reached. Your usage limit will reset every five hours.",
+        );
+        assert!(is_rate_limited(&output));
+    }
+
+    #[test]
+    fn test_rate_limit_detection_for_credit_balance_wording() {
+        let output = make_output("", "Credit balance is too low. Try again after topping up.");
+        assert!(is_rate_limited(&output));
+    }
+
+    #[test]
+    fn test_environment_failure_detection_for_missing_auth() {
+        let output = make_output("", "Error: No authentication information found.");
+        assert!(is_environment_failure(&output));
+        assert_eq!(
+            classify_process_output(&output),
+            OutcomeClassification::EnvironmentError
+        );
+    }
+
+    #[test]
+    fn test_environment_failure_detection_for_network_block() {
+        let output = make_output(
+            "",
+            "failed to connect to websocket: IO error: Operation not permitted (os error 1)",
+        );
+        assert!(is_environment_failure(&output));
+        assert_eq!(
+            classify_process_output(&output),
+            OutcomeClassification::EnvironmentError
+        );
     }
 
     #[test]

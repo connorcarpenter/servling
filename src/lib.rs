@@ -1,6 +1,7 @@
 //! Core AI agent trait and CLI engine.
 
 pub mod backend_registry;
+pub mod backend_policy;
 pub mod claude_agent;
 pub mod cli_backend;
 pub mod codex_agent;
@@ -18,6 +19,7 @@ pub use crate::backend_registry::{
     default_batch_backend_names, default_session_backend_names, find_backend_descriptor,
     BackendDescriptor,
 };
+pub use crate::backend_policy::{availability_for_request, record_outcome_for_request, BackendAvailability};
 pub use crate::core::{
     build_servling, normalize_model, Backend, BackendMetadata, BatchCapabilities,
     BatchFallbackPolicy, LLMRequest, LLMResponse, OutcomeClassification, ProviderCapabilities,
