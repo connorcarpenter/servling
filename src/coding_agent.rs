@@ -213,12 +213,59 @@ fn format_response_failure(
     classification: OutcomeClassification,
     text: &str,
 ) -> String {
-    let excerpt = text.lines().next().unwrap_or("").trim();
+    let excerpt = select_failure_excerpt(text);
     if excerpt.is_empty() {
         format!("{backend_name}: {classification:?}")
     } else {
         format!("{backend_name}: {classification:?} ({excerpt})")
     }
+}
+
+fn select_failure_excerpt(text: &str) -> &str {
+    let lines = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        return "";
+    }
+
+    lines
+        .iter()
+        .copied()
+        .max_by_key(|line| {
+            let lower = line.to_ascii_lowercase();
+            let mut score = 0;
+            if lower.contains("forkpty") {
+                score += 8;
+            }
+            if lower.contains("eacces") || lower.contains("permission") || lower.contains("denied")
+            {
+                score += 7;
+            }
+            if lower.contains("error") {
+                score += 6;
+            }
+            if lower.contains("failed") {
+                score += 5;
+            }
+            if lower.contains('✗') {
+                score += 1;
+            }
+            score
+        })
+        .filter(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.contains('✗')
+                || lower.contains("error")
+                || lower.contains("failed")
+                || lower.contains("denied")
+                || lower.contains("permission")
+                || lower.contains("eacces")
+                || lower.contains("forkpty")
+        })
+        .unwrap_or(lines[0])
 }
 
 /// Build a CodingAgent (with fallbacks) from a list of candidates.
@@ -496,5 +543,16 @@ mod tests {
         assert!(message.contains("first: EnvironmentError"));
         assert!(message.contains("second: RateLimited"));
         assert!(message.contains("third: skipped (known exhausted)"));
+    }
+
+    #[test]
+    fn format_response_failure_prefers_meaningful_error_line() {
+        let text = "\
+● Read prompt\n\
+\n\
+✗ Reproduce compile failure (shell)\n\
+  └ <exited with error: forkpty(3) failed.>\n";
+        let rendered = format_response_failure("copilot", OutcomeClassification::EnvironmentError, text);
+        assert!(rendered.contains("forkpty(3) failed"));
     }
 }

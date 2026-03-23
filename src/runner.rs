@@ -41,6 +41,22 @@ struct RunnerAuthBasis {
     copilot_config_dir_exists: bool,
 }
 
+enum WaitOutcome {
+    Completed {
+        status: ExitStatus,
+        stdout: Vec<u8>,
+        stderr: Vec<u8>,
+    },
+    EnvironmentFailed {
+        stdout: Vec<u8>,
+        stderr: Vec<u8>,
+    },
+    TimedOut {
+        stdout: Vec<u8>,
+        stderr: Vec<u8>,
+    },
+}
+
 fn format_stream_line(line: &str) -> Option<StreamLine> {
     let trimmed = line.trim();
     if !trimmed.starts_with('{') {
@@ -161,7 +177,7 @@ fn wait_with_streaming(
     mut child: Child,
     timeout: Duration,
     stream: bool,
-) -> Result<(ExitStatus, Vec<u8>, Vec<u8>), std::io::Error> {
+) -> Result<WaitOutcome, std::io::Error> {
     let stdout_handle = child.stdout.take();
     let stderr_handle = child.stderr.take();
 
@@ -239,16 +255,28 @@ fn wait_with_streaming(
                     Err(arc) => arc.lock().unwrap().clone(),
                 };
 
-                return Ok((status, stdout, stderr));
+                return Ok(WaitOutcome::Completed {
+                    status,
+                    stdout,
+                    stderr,
+                });
             }
             Ok(None) => {
+                let stdout = stdout_buf.lock().unwrap().clone();
+                let stderr = stderr_buf.lock().unwrap().clone();
+                if is_environment_failure_text(
+                    &String::from_utf8_lossy(&stdout),
+                    &String::from_utf8_lossy(&stderr),
+                ) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Ok(WaitOutcome::EnvironmentFailed { stdout, stderr });
+                }
+
                 if start.elapsed() > timeout {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "Process timed out",
-                    ));
+                    return Ok(WaitOutcome::TimedOut { stdout, stderr });
                 }
                 thread::sleep(poll_interval);
             }
@@ -348,34 +376,9 @@ pub fn run_cli_runner(
         }
     }
 
-    let (status, stdout_bytes, stderr_bytes) =
-        match wait_with_streaming(child, timeout, config.stream_output) {
-            Ok(result) => result,
-            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                return Ok(CliRunnerOutcome {
-                    exit_code: None,
-                    classification: OutcomeClassification::Timeout,
-                    elapsed_seconds: start.elapsed().as_secs_f64(),
-                    stdout_path: None,
-                    stderr_path: None,
-                    token_usage: None,
-                });
-            }
-            Err(e) => return Err(e.into()),
-        };
-
-    let output = std::process::Output {
-        status,
-        stdout: stdout_bytes,
-        stderr: stderr_bytes,
-    };
-
-    let elapsed = start.elapsed().as_secs_f64();
-    let exit_code = output.status.code();
-    let classification = classify_process_output(&output);
-
     let output_dir = mission_dir.join("RUNNER_OUTPUT");
     let _ = std::fs::create_dir_all(&output_dir);
+    clear_stale_runner_outputs(&output_dir);
 
     let metadata = build_runner_metadata(program, &args, config);
     if let Ok(metadata_json) = serde_json::to_string_pretty(&metadata) {
@@ -383,23 +386,55 @@ pub fn run_cli_runner(
         let _ = std::fs::write(&metadata_path, metadata_json);
     }
 
-    let stdout_path = if !output.stdout.is_empty() {
+    let (status, stdout_bytes, stderr_bytes, classification) =
+        match wait_with_streaming(child, timeout, config.stream_output) {
+            Ok(WaitOutcome::Completed {
+                status,
+                stdout,
+                stderr,
+            }) => {
+                let output = std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                };
+                let classification = classify_process_output(&output);
+                (
+                    Some(output.status),
+                    output.stdout,
+                    output.stderr,
+                    classification,
+                )
+            }
+            Ok(WaitOutcome::TimedOut { stdout, stderr }) => {
+                (None, stdout, stderr, OutcomeClassification::Timeout)
+            }
+            Ok(WaitOutcome::EnvironmentFailed { stdout, stderr }) => {
+                (None, stdout, stderr, OutcomeClassification::EnvironmentError)
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+    let elapsed = start.elapsed().as_secs_f64();
+    let exit_code = status.and_then(|status| status.code());
+
+    let stdout_path = if !stdout_bytes.is_empty() {
         let path = output_dir.join("runner_stdout.txt");
-        let _ = std::fs::write(&path, &output.stdout);
+        let _ = std::fs::write(&path, &stdout_bytes);
         Some(path.display().to_string())
     } else {
         None
     };
 
-    let stderr_path = if !output.stderr.is_empty() {
+    let stderr_path = if !stderr_bytes.is_empty() {
         let path = output_dir.join("runner_stderr.txt");
-        let _ = std::fs::write(&path, &output.stderr);
+        let _ = std::fs::write(&path, &stderr_bytes);
         Some(path.display().to_string())
     } else {
         None
     };
 
-    let stderr_str = String::from_utf8_lossy(&output.stderr);
+    let stderr_str = String::from_utf8_lossy(&stderr_bytes);
     let token_usage = TokenUsage::parse(&stderr_str);
     let token_usage = if token_usage.has_data() {
         Some(token_usage)
@@ -519,9 +554,17 @@ fn is_rate_limited(output: &std::process::Output) -> bool {
 }
 
 fn is_environment_failure(output: &std::process::Output) -> bool {
-    let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-    let combined = format!("{} {}", stdout, stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    is_environment_failure_text(&stdout, &stderr)
+}
+
+fn is_environment_failure_text(stdout: &str, stderr: &str) -> bool {
+    let combined = format!(
+        "{} {}",
+        stdout.to_lowercase(),
+        stderr.to_lowercase()
+    );
 
     let patterns = [
         "no authentication information found",
@@ -536,9 +579,22 @@ fn is_environment_failure(output: &std::process::Output) -> bool {
         "dns",
         "temporary failure in name resolution",
         "could not resolve host",
+        "forkpty(3) failed",
+        "eacces: permission denied",
+        "permission denied, open",
     ];
 
     patterns.iter().any(|p| combined.contains(p))
+}
+
+fn clear_stale_runner_outputs(output_dir: &Path) {
+    for name in [
+        "runner_stdout.txt",
+        "runner_stderr.txt",
+        "token_usage.json",
+    ] {
+        let _ = std::fs::remove_file(output_dir.join(name));
+    }
 }
 
 fn classify_process_output(output: &std::process::Output) -> OutcomeClassification {
@@ -611,6 +667,19 @@ mod tests {
         let output = make_output(
             "",
             "failed to connect to websocket: IO error: Operation not permitted (os error 1)",
+        );
+        assert!(is_environment_failure(&output));
+        assert_eq!(
+            classify_process_output(&output),
+            OutcomeClassification::EnvironmentError
+        );
+    }
+
+    #[test]
+    fn test_environment_failure_detection_for_permission_and_pty_failures() {
+        let output = make_output(
+            "forkpty(3) failed.",
+            "Error: EACCES: permission denied, open '/tmp/file'",
         );
         assert!(is_environment_failure(&output));
         assert_eq!(
