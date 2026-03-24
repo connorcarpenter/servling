@@ -25,6 +25,31 @@ impl CopilotAgent {
         }
     }
 
+    /// A text-generation-only backend: directory access granted, but no auto-approved tools.
+    ///
+    /// Use this for calls that need the model to reason over a self-contained
+    /// prompt and return text directly — no agentic tool-use loop.
+    /// The absence of `--allow-all-tools` prevents Copilot from entering an
+    /// iterative tool-call session (tool calls are denied via `--no-ask-user`),
+    /// so the model must respond with plain text.
+    /// `--add-dir` is retained so Copilot can read the `@{input_file}` prompt.
+    pub fn new_text_gen(command: Option<String>) -> Self {
+        let template = command.unwrap_or_else(|| {
+            // Same flags as the agentic backend MINUS --allow-all-tools.
+            // --allow-all-tools is what enables Copilot's iterative tool-use loop;
+            // without it, tool calls require per-call approval, and --no-ask-user
+            // denies them — so the model must respond with plain text.
+            // --add-dir is still needed so Copilot can read the @{input_file} prompt.
+            "copilot -p @{input_file} --disable-builtin-mcps --no-custom-instructions --no-ask-user --disallow-temp-dir --add-dir {writable_root} {add_dir_args}".to_string()
+        });
+        Self {
+            cli: CliBackend {
+                name: "copilot",
+                command_template: template,
+            },
+        }
+    }
+
     pub fn check_available() -> Result<()> {
         let output = Command::new("copilot")
             .arg("--version")
