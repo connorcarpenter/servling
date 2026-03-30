@@ -1236,6 +1236,7 @@ mod tests {
                 Ok(classification) => Ok(LLMResponse {
                     text: self.name.to_string(),
                     classification,
+                    backend_name: Some(self.name.to_string()),
                     exit_code: Some(0),
                     token_usage: None,
                     elapsed_seconds: 0.0,

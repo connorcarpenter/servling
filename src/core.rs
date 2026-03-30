@@ -407,6 +407,7 @@ impl OutcomeClassification {
 pub struct LLMResponse {
     pub text: String,
     pub classification: OutcomeClassification,
+    pub backend_name: Option<String>,
     pub exit_code: Option<i32>,
     pub token_usage: Option<TokenUsage>,
     pub elapsed_seconds: f64,

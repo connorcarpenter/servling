@@ -168,6 +168,7 @@ impl CliBackend {
             text,
             exit_code: outcome.exit_code,
             classification: outcome.classification,
+            backend_name: Some(self.name.to_string()),
             stdout_path: outcome.stdout_path,
             stderr_path: outcome.stderr_path,
             token_usage: outcome.token_usage,

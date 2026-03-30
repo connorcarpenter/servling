@@ -172,8 +172,11 @@ impl TurnRunner for CodingAgent {
                     }
                     continue;
                 }
-                Ok(resp) => {
+                Ok(mut resp) => {
                     record_outcome_for_request(request, backend.name(), resp.classification);
+                    if resp.backend_name.is_none() {
+                        resp.backend_name = Some(backend.name().to_string());
+                    }
                     return Ok(resp);
                 }
                 Err(err) => {
@@ -349,6 +352,7 @@ mod tests {
             Ok(LLMResponse {
                 text: self.text.to_string(),
                 classification: self.classification,
+                backend_name: Some(self.name.to_string()),
                 exit_code: Some(if self.classification == OutcomeClassification::Ok {
                     0
                 } else {
