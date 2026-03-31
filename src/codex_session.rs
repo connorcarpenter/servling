@@ -393,7 +393,10 @@ fn build_turn_command(
         .arg("-c")
         .arg("approval_policy=\"never\"")
         .arg("-c")
-        .arg("sandbox_mode=\"workspace-write\"");
+        // Match the Codex batch backend: workspace-write trips bubblewrap
+        // loopback setup in the outer-launcher environment, so use the
+        // non-bwrap mode and rely on the caller's writable-root contract.
+        .arg("sandbox_mode=\"danger-full-access\"");
 
     if !is_resume {
         cmd.arg("-C").arg(working_dir);
@@ -505,15 +508,8 @@ mod tests {
     fn new_session_with_extra_roots_includes_add_dir() {
         let working_dir = PathBuf::from("/tmp/ws");
         let extra = PathBuf::from("/tmp/extra");
-        let cmd = build_turn_command(
-            None,
-            None,
-            &working_dir,
-            &[extra.clone()],
-            None,
-            "hello",
-        )
-        .unwrap();
+        let cmd =
+            build_turn_command(None, None, &working_dir, &[extra.clone()], None, "hello").unwrap();
         let args: Vec<_> = cmd.get_args().collect();
         let args_str: Vec<_> = args.iter().map(|a| a.to_string_lossy()).collect();
         assert!(
@@ -537,7 +533,7 @@ mod tests {
     #[test]
     #[ignore = "requires live Codex CLI + ~/.codex/auth.json OAuth tokens"]
     fn real_codex_probe_basic_turn_and_resume() {
-        use crate::session::{SessionBackend, SessionStartRequest, SessionResumeRequest};
+        use crate::session::{SessionBackend, SessionResumeRequest, SessionStartRequest};
         use std::time::Duration;
 
         let backend = CodexSessionBackend::new(None);
@@ -550,7 +546,9 @@ mod tests {
             writable_roots: vec![],
             model: None,
         };
-        let session = backend.start_session(&start_req).expect("start_session should succeed");
+        let session = backend
+            .start_session(&start_req)
+            .expect("start_session should succeed");
         let stop = session
             .send_user_turn(&crate::session::UserTurnRequest {
                 message: "Reply with exactly: PROBE_OK".to_string(),
@@ -564,14 +562,23 @@ mod tests {
         }
 
         let handle = session.handle();
-        let session_ref = handle.provider_session_ref.clone().expect("should have session ref");
+        let session_ref = handle
+            .provider_session_ref
+            .clone()
+            .expect("should have session ref");
         println!("session_ref: {session_ref}");
         println!("stop_reason: {stop:?}");
         println!("events: {events:?}");
 
         // Verify turn completed and got content
         let has_content = events.iter().any(|e| {
-            matches!(e, SessionEvent::ContentChunk { kind: SessionContentKind::Assistant, .. })
+            matches!(
+                e,
+                SessionEvent::ContentChunk {
+                    kind: SessionContentKind::Assistant,
+                    ..
+                }
+            )
         });
         assert!(has_content, "expected assistant content chunk");
         assert!(matches!(stop, crate::session::SessionStopReason::EndTurn));
@@ -583,7 +590,9 @@ mod tests {
             model: None,
             provider_session_ref: session_ref.clone(),
         };
-        let resumed = backend.resume_session(&resume_req).expect("resume_session should succeed");
+        let resumed = backend
+            .resume_session(&resume_req)
+            .expect("resume_session should succeed");
         let stop2 = resumed
             .send_user_turn(&crate::session::UserTurnRequest {
                 message: "Reply with exactly: RESUME_OK".to_string(),

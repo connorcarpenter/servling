@@ -409,9 +409,12 @@ pub fn run_cli_runner(
             Ok(WaitOutcome::TimedOut { stdout, stderr }) => {
                 (None, stdout, stderr, OutcomeClassification::Timeout)
             }
-            Ok(WaitOutcome::EnvironmentFailed { stdout, stderr }) => {
-                (None, stdout, stderr, OutcomeClassification::EnvironmentError)
-            }
+            Ok(WaitOutcome::EnvironmentFailed { stdout, stderr }) => (
+                None,
+                stdout,
+                stderr,
+                OutcomeClassification::EnvironmentError,
+            ),
             Err(e) => return Err(e.into()),
         };
 
@@ -560,11 +563,7 @@ fn is_environment_failure(output: &std::process::Output) -> bool {
 }
 
 fn is_environment_failure_text(stdout: &str, stderr: &str) -> bool {
-    let combined = format!(
-        "{} {}",
-        stdout.to_lowercase(),
-        stderr.to_lowercase()
-    );
+    let combined = format!("{} {}", stdout.to_lowercase(), stderr.to_lowercase());
 
     let patterns = [
         "no authentication information found",
@@ -588,11 +587,7 @@ fn is_environment_failure_text(stdout: &str, stderr: &str) -> bool {
 }
 
 fn clear_stale_runner_outputs(output_dir: &Path) {
-    for name in [
-        "runner_stdout.txt",
-        "runner_stderr.txt",
-        "token_usage.json",
-    ] {
+    for name in ["runner_stdout.txt", "runner_stderr.txt", "token_usage.json"] {
         let _ = std::fs::remove_file(output_dir.join(name));
     }
 }

@@ -221,13 +221,11 @@ mod tests {
 
         let availability = availability_for_request(&request, "claude");
         assert!(!availability.allowed);
-        assert!(
-            availability
-                .reason
-                .as_deref()
-                .unwrap_or_default()
-                .contains("automatic rate-limit cooldown")
-        );
+        assert!(availability
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("automatic rate-limit cooldown"));
     }
 
     #[test]

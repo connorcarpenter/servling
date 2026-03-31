@@ -151,14 +151,27 @@ impl CliBackend {
             output_path.as_deref(),
         )?;
 
+        let stdout_text = outcome
+            .stdout_path
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .unwrap_or_default();
+        let stderr_text = outcome
+            .stderr_path
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .unwrap_or_default();
+
         let text = if let Some(out_p) = output_path {
             std::fs::read_to_string(out_p).unwrap_or_default()
+        } else if outcome.classification == crate::core::OutcomeClassification::Ok {
+            stdout_text
+        } else if stdout_text.is_empty() {
+            stderr_text
+        } else if stderr_text.is_empty() {
+            stdout_text
         } else {
-            outcome
-                .stdout_path
-                .as_ref()
-                .and_then(|p| std::fs::read_to_string(p).ok())
-                .unwrap_or_default()
+            format!("STDOUT:\n{stdout_text}\n\nSTDERR:\n{stderr_text}")
         };
 
         drop(temp_input);

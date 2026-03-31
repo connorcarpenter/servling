@@ -141,11 +141,7 @@ impl TurnRunner for CodingAgent {
                     if *current >= self.backends.len() {
                         bail!(format_failure_chain(&failures));
                     }
-                    log::warn!(
-                        "Skipping backend {}: {}",
-                        backend.name(),
-                        reason
-                    );
+                    log::warn!("Skipping backend {}: {}", backend.name(), reason);
                 }
                 continue;
             }
@@ -207,7 +203,10 @@ fn format_failure_chain(failures: &[String]) -> String {
     if failures.is_empty() {
         "No backends available in CodingAgent".to_string()
     } else {
-        format!("No backends available in CodingAgent: {}", failures.join(" | "))
+        format!(
+            "No backends available in CodingAgent: {}",
+            failures.join(" | ")
+        )
     }
 }
 
@@ -317,7 +316,7 @@ pub fn build_session_backend(candidates: Vec<AgentCandidate>) -> Result<SessionB
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{BatchFallbackPolicy, BatchCapabilities};
+    use crate::core::{BatchCapabilities, BatchFallbackPolicy};
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -542,7 +541,9 @@ mod tests {
             input_file: None,
         };
 
-        let err = agent.execute(&request).expect_err("all backends should fail");
+        let err = agent
+            .execute(&request)
+            .expect_err("all backends should fail");
         let message = err.to_string();
         assert!(message.contains("first: EnvironmentError"));
         assert!(message.contains("second: RateLimited"));
@@ -556,7 +557,8 @@ mod tests {
 \n\
 ✗ Reproduce compile failure (shell)\n\
   └ <exited with error: forkpty(3) failed.>\n";
-        let rendered = format_response_failure("copilot", OutcomeClassification::EnvironmentError, text);
+        let rendered =
+            format_response_failure("copilot", OutcomeClassification::EnvironmentError, text);
         assert!(rendered.contains("forkpty(3) failed"));
     }
 }

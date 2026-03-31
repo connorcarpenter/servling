@@ -15,7 +15,11 @@ pub struct CodexAgent {
 impl CodexAgent {
     pub fn new(command: Option<String>) -> Self {
         let template = command.unwrap_or_else(|| {
-            "codex -c approval_policy=\"never\" -c sandbox_mode=\"workspace-write\" exec -C {working_dir} {add_dir_args} -".to_string()
+            // The outer-launcher executor environment rejects Codex's
+            // bubblewrap loopback setup under workspace-write. Use the same
+            // non-bwrap mode as the working supervisor Codex session and let
+            // oxstep constrain scope via working_dir + writable roots.
+            "codex -c approval_policy=\"never\" -c sandbox_mode=\"danger-full-access\" exec -C {working_dir} {add_dir_args} -".to_string()
         });
         Self {
             cli: CliBackend {
