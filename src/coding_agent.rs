@@ -398,6 +398,7 @@ mod tests {
             max_runtime_seconds: 30,
             stream_output: false,
             input_file: None,
+            temp_dir_override: None,
         };
 
         let response = agent.execute(&request).expect("fallback response");
@@ -440,6 +441,7 @@ mod tests {
             max_runtime_seconds: 30,
             stream_output: false,
             input_file: None,
+            temp_dir_override: None,
         };
 
         let response = agent.execute(&request).expect("fallback response");
@@ -488,6 +490,7 @@ mod tests {
             max_runtime_seconds: 30,
             stream_output: false,
             input_file: None,
+            temp_dir_override: None,
         };
 
         let response = agent.execute(&request).expect("response");
@@ -539,6 +542,7 @@ mod tests {
             max_runtime_seconds: 30,
             stream_output: false,
             input_file: None,
+            temp_dir_override: None,
         };
 
         let err = agent

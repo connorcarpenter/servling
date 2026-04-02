@@ -1274,6 +1274,7 @@ mod tests {
                 max_runtime_seconds: 5,
                 stream_output: false,
                 input_file: None,
+                temp_dir_override: None,
             })
             .expect("batch fallback succeeds");
 
