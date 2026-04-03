@@ -165,7 +165,10 @@ impl CliBackend {
         let text = if let Some(out_p) = output_path {
             std::fs::read_to_string(out_p).unwrap_or_default()
         } else if outcome.classification == crate::core::OutcomeClassification::Ok {
-            stdout_text
+            // Claude CLI outputs JSONL streaming events.  Extract the actual
+            // text content from the `{"type":"result","result":"..."}` event
+            // so downstream parsers receive the clean response, not the event stream.
+            extract_claude_result_text(&stdout_text).unwrap_or(stdout_text)
         } else if stdout_text.is_empty() {
             stderr_text
         } else if stderr_text.is_empty() {
@@ -225,6 +228,57 @@ fn claude_path(path: &Path) -> String {
     } else {
         rendered
     }
+}
+
+/// Extract the actual text response from Claude CLI's JSONL streaming output.
+///
+/// Claude CLI emits a sequence of JSONL events.  The final result is in either:
+/// - `{"type":"result","subtype":"success","result":"<text>"}` — the canonical path
+/// - `{"type":"assistant","message":{"content":[{"type":"text","text":"<text>"}]}}` — fallback
+///
+/// Returns `None` if the input doesn't look like Claude JSONL (i.e., falls back to
+/// treating `stdout_text` as raw text, preserving existing non-Claude behavior).
+fn extract_claude_result_text(stdout: &str) -> Option<String> {
+    // Only trigger on Claude JSONL: the first line must start with '{"type":"system"'
+    let first_line = stdout.lines().next()?;
+    if !first_line.contains("\"type\":\"system\"") {
+        return None;
+    }
+
+    // Try the result event first (most reliable).
+    for line in stdout.lines() {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            if v.get("type").and_then(|t| t.as_str()) == Some("result")
+                && v.get("subtype").and_then(|s| s.as_str()) == Some("success")
+            {
+                if let Some(result) = v.get("result").and_then(|r| r.as_str()) {
+                    if !result.is_empty() {
+                        return Some(result.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: reconstruct text from content_block_delta text_delta events.
+    let mut text = String::new();
+    for line in stdout.lines() {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            if v.get("type").and_then(|t| t.as_str()) == Some("stream_event") {
+                let event = v.get("event")?;
+                if event.get("type").and_then(|t| t.as_str()) == Some("content_block_delta") {
+                    if let Some(delta_text) = event
+                        .get("delta")
+                        .and_then(|d| d.get("text"))
+                        .and_then(|t| t.as_str())
+                    {
+                        text.push_str(delta_text);
+                    }
+                }
+            }
+        }
+    }
+    if !text.is_empty() { Some(text) } else { None }
 }
 
 #[cfg(test)]
