@@ -36,6 +36,8 @@ impl BackendAvailability {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct BackendPolicyFile {
     #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
     backends: BTreeMap<String, BackendPolicyEntry>,
 }
 
@@ -71,6 +73,23 @@ pub fn availability_for_request(request: &LLMRequest, backend: &str) -> BackendA
     }
 
     BackendAvailability::allowed()
+}
+
+/// Read the required model from the `servling_backend_policy.json` in `dir`.
+///
+/// Returns `Err` with a clear message if the policy file does not exist or
+/// does not contain a `"model"` field.  Model selection must be explicit and
+/// project-controlled — no silent fallback to user-level configuration.
+pub fn required_model_from_dir(dir: &Path) -> Result<String, String> {
+    let path = dir.join(POLICY_FILE_NAME);
+    let policy = load_policy_file(&path);
+    policy.model.ok_or_else(|| {
+        format!(
+            "No \"model\" field in {}. \
+             Add an explicit model, e.g.: {{\"model\": \"claude-sonnet-4-5\", ...}}",
+            path.display()
+        )
+    })
 }
 
 pub fn record_outcome_for_request(

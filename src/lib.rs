@@ -15,7 +15,8 @@ pub mod session;
 pub mod token_usage;
 
 pub use crate::backend_policy::{
-    availability_for_request, record_outcome_for_request, BackendAvailability,
+    availability_for_request, record_outcome_for_request, required_model_from_dir,
+    BackendAvailability,
 };
 pub use crate::backend_registry::{
     all_backend_descriptors, build_batch_backend, build_session_backend_by_name,
