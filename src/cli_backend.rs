@@ -217,7 +217,7 @@ fn build_claude_settings(working_dir: &Path, writable_roots: &[PathBuf]) -> Stri
         "sandbox": {
             "enabled": true,
             "autoAllowBashIfSandboxed": true,
-            "allowUnsandboxedCommands": false,
+            "allowUnsandboxedCommands": true,
             "filesystem": {
                 "allowWrite": allow_write,
             }
