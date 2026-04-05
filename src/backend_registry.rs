@@ -89,7 +89,7 @@ const BACKENDS: &[BackendDescriptor] = &[
     },
 ];
 
-const DEFAULT_BATCH_BACKENDS: &[&str] = &["codex", "claude", "copilot"];
+const DEFAULT_BATCH_BACKENDS: &[&str] = &["claude", "codex", "copilot"];
 const DEFAULT_SESSION_BACKENDS: &[&str] = &["codex", "copilot"];
 
 pub fn all_backend_descriptors() -> &'static [BackendDescriptor] {
@@ -145,7 +145,7 @@ mod tests {
     fn default_lane_orders_are_explicit() {
         assert_eq!(
             default_batch_backend_names(),
-            &["codex", "claude", "copilot"]
+            &["claude", "codex", "copilot"]
         );
         assert_eq!(default_session_backend_names(), &["codex", "copilot"]);
         assert_eq!(all_backend_descriptors().len(), 3);
