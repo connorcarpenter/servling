@@ -165,10 +165,19 @@ impl CliBackend {
         let text = if let Some(out_p) = output_path {
             std::fs::read_to_string(out_p).unwrap_or_default()
         } else if outcome.classification == crate::core::OutcomeClassification::Ok {
-            // Claude CLI outputs JSONL streaming events.  Extract the actual
-            // text content from the `{"type":"result","result":"..."}` event
-            // so downstream parsers receive the clean response, not the event stream.
-            extract_claude_result_text(&stdout_text).unwrap_or(stdout_text)
+            if self.name == "copilot" {
+                // Copilot CLI wraps the model's output in rich terminal UI with box-drawing
+                // characters, tool-call traces, and status lines.  The actual model response
+                // (typically a JSON object) appears as the final paragraph after the last
+                // double-newline.  Additionally, ANSI escape sequences and raw control chars
+                // sometimes leak into the output and must be stripped before JSON parsing.
+                extract_copilot_result_text(&stdout_text)
+            } else {
+                // Claude CLI outputs JSONL streaming events.  Extract the actual
+                // text content from the `{"type":"result","result":"..."}` event
+                // so downstream parsers receive the clean response, not the event stream.
+                extract_claude_result_text(&stdout_text).unwrap_or(stdout_text)
+            }
         } else if stdout_text.is_empty() {
             stderr_text
         } else if stderr_text.is_empty() {
@@ -281,6 +290,71 @@ fn extract_claude_result_text(stdout: &str) -> Option<String> {
     if !text.is_empty() { Some(text) } else { None }
 }
 
+/// Strip ANSI escape sequences and ASCII control characters (U+0000–U+001F, excluding
+/// tab/LF/CR) from `text`.  This makes the text safe to embed in JSON strings and
+/// removes terminal-specific artefacts that would cause JSON parse failures.
+fn strip_control_chars_and_ansi(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut result = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == 0x1b {
+            // Skip ANSI/VT escape sequence:  ESC '[' <params> <letter>
+            i += 1;
+            if i < bytes.len() && bytes[i] == b'[' {
+                i += 1;
+                while i < bytes.len() && !(bytes[i] >= 0x40 && bytes[i] <= 0x7e) {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    i += 1; // consume the terminating letter
+                }
+            }
+        } else if bytes[i] < 0x20 && bytes[i] != b'\t' && bytes[i] != b'\n' && bytes[i] != b'\r' {
+            // Skip raw control characters (null, BEL, BS, etc.)
+            i += 1;
+        } else {
+            // Preserve complete UTF-8 code points
+            let ch_start = i;
+            i += 1;
+            while i < bytes.len() && (bytes[i] & 0xC0) == 0x80 {
+                i += 1;
+            }
+            if let Ok(s) = std::str::from_utf8(&bytes[ch_start..i]) {
+                result.push_str(s);
+            }
+        }
+    }
+    result
+}
+
+/// Extract the actual model response from Copilot CLI's rich terminal output.
+///
+/// The Copilot CLI decorates its output with status lines (●, │, └ box-drawing chars)
+/// that describe file reads and tool calls.  The real response — typically a JSON
+/// object — appears as the final paragraph (double-newline separated block) in the
+/// output and always starts with `{` or `[`.
+///
+/// If no such paragraph is found (e.g. Copilot returned only conversational prose),
+/// the function returns the full stripped stdout so that the caller's JSON parser can
+/// report a sensible error rather than seeing a garbled string with control chars.
+fn extract_copilot_result_text(stdout: &str) -> String {
+    let stripped = strip_control_chars_and_ansi(stdout);
+
+    // Walk paragraphs from the end, looking for one that starts with a JSON token.
+    let paragraphs: Vec<&str> = stripped.split("\n\n").collect();
+    if let Some(last_json_para) = paragraphs.iter().rev().find(|para| {
+        let t = para.trim();
+        !t.is_empty() && (t.starts_with('{') || t.starts_with('['))
+    }) {
+        return last_json_para.trim().to_string();
+    }
+
+    // Fallback: no clean JSON paragraph found — return the stripped full text so
+    // the caller can attempt extraction and report a useful parse error.
+    stripped
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,5 +411,43 @@ mod tests {
         assert!(expanded.contains("\"defaultMode\":\"acceptEdits\""));
         assert!(expanded.contains("\"allowWrite\":[\"//repo/candidate\",\"//repo/generated\"]"));
         assert!(expanded.contains("\"additionalDirectories\":[\"//repo/generated\"]"));
+    }
+
+    #[test]
+    fn strip_control_chars_removes_ansi_and_null() {
+        let input = "\x1b[32mHello\x1b[0m \x00world\nnewline ok\ttab ok";
+        let output = strip_control_chars_and_ansi(input);
+        assert_eq!(output, "Hello world\nnewline ok\ttab ok");
+    }
+
+    #[test]
+    fn extract_copilot_result_text_finds_last_json_paragraph() {
+        // Simulates the rich terminal UI that Copilot CLI wraps around the response.
+        let stdout = "\
+\u{25CF} Read .tmp55ptnp\n  \u{2502} ~/path/to/file\n  \u{2514} 136 lines read\n\n\
+\u{25CF} Output verdict JSON (shell)\n  \u{2502} cat << 'EOF'\n  \u{2502} {\"verdict\":\"falsifies\",\"reasoning\":\"truncated\u{2026}\"}\n  \u{2514} 7 lines...\n\n\
+{\"verdict\":\"falsifies\",\"reasoning\":\"The full reasoning here.\"}\n\n";
+        let result = extract_copilot_result_text(stdout);
+        assert_eq!(
+            result,
+            "{\"verdict\":\"falsifies\",\"reasoning\":\"The full reasoning here.\"}"
+        );
+    }
+
+    #[test]
+    fn extract_copilot_result_text_strips_control_chars_from_json() {
+        // Simulates ANSI escape code leaking into the JSON value.
+        let stdout = "\u{25CF} Header\n\n{\"key\":\"\x1b[32mvalue\x1b[0m\"}\n\n";
+        let result = extract_copilot_result_text(stdout);
+        assert_eq!(result, "{\"key\":\"value\"}");
+    }
+
+    #[test]
+    fn extract_copilot_result_text_fallback_when_no_json() {
+        let stdout = "\u{25CF} Some UI\n\nJust prose, no JSON here.\n\n";
+        let result = extract_copilot_result_text(stdout);
+        // Fallback returns the stripped full text
+        assert!(result.contains("Just prose, no JSON here."));
+        assert!(!result.contains('\x1b'));
     }
 }
