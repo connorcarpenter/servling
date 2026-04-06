@@ -264,10 +264,15 @@ fn wait_with_streaming(
             Ok(None) => {
                 let stdout = stdout_buf.lock().unwrap().clone();
                 let stderr = stderr_buf.lock().unwrap().clone();
-                if is_environment_failure_text(
+                if let Some(pattern) = matched_environment_failure_pattern(
                     &String::from_utf8_lossy(&stdout),
                     &String::from_utf8_lossy(&stderr),
                 ) {
+                    eprintln!(
+                        "[servling/runner] Environment failure detected — killing process. \
+                         Matched pattern: {:?} (stdout_len={}, stderr_len={}, elapsed={:.1}s)",
+                        pattern, stdout.len(), stderr.len(), start.elapsed().as_secs_f64()
+                    );
                     let _ = child.kill();
                     let _ = child.wait();
                     return Ok(WaitOutcome::EnvironmentFailed { stdout, stderr });
@@ -563,9 +568,16 @@ fn is_environment_failure(output: &std::process::Output) -> bool {
 }
 
 fn is_environment_failure_text(stdout: &str, stderr: &str) -> bool {
+    matched_environment_failure_pattern(stdout, stderr).is_some()
+}
+
+/// Returns the matched pattern string if an environment failure is detected,
+/// or `None` if the output looks healthy.  The returned pattern can be logged
+/// to make debugging kill-reasons trivial for a supervisor.
+fn matched_environment_failure_pattern<'a>(stdout: &str, stderr: &str) -> Option<&'a str> {
     let combined = format!("{} {}", stdout.to_lowercase(), stderr.to_lowercase());
 
-    let patterns = [
+    let patterns: &[&str] = &[
         "no authentication information found",
         "to authenticate",
         "failed to connect to websocket",
@@ -575,15 +587,18 @@ fn is_environment_failure_text(stdout: &str, stderr: &str) -> bool {
         "network is unreachable",
         "connection refused",
         "connection timed out",
-        "dns",
+        // NOTE: "dns" was removed — it's only 3 chars and false-positives on base64
+        // data in Claude's thinking signature hashes (e.g. "...wdnsquv0...").
+        // The specific DNS errors are covered by the patterns below.
         "temporary failure in name resolution",
         "could not resolve host",
+        "dns resolution failed",
         "forkpty(3) failed",
         "eacces: permission denied",
         "permission denied, open",
     ];
 
-    patterns.iter().any(|p| combined.contains(p))
+    patterns.iter().find(|p| combined.contains(**p)).copied()
 }
 
 fn clear_stale_runner_outputs(output_dir: &Path) {

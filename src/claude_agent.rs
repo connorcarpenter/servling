@@ -15,10 +15,14 @@ pub struct ClaudeAgent {
 impl ClaudeAgent {
     pub fn new(command: Option<String>, stream_output: bool) -> Self {
         let template = command.unwrap_or_else(|| {
+            // --permission-mode bypassPermissions: auto-approve all tool calls
+            // (Read, Bash, etc.) without interactive prompts.  Required for
+            // batch/non-interactive mode — without it, Claude requests file-read
+            // permissions that cannot be granted, causing EnvironmentError.
             if stream_output {
-                "claude --print --settings {claude_settings} --output-format stream-json --include-partial-messages --verbose".to_string()
+                "claude --print --permission-mode bypassPermissions --settings {claude_settings} --output-format stream-json --include-partial-messages --verbose".to_string()
             } else {
-                "claude --print --settings {claude_settings}".to_string()
+                "claude --print --permission-mode bypassPermissions --settings {claude_settings}".to_string()
             }
         });
         Self {
