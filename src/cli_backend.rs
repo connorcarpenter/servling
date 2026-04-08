@@ -23,8 +23,13 @@ impl CliBackend {
         input_path: Option<&Path>,
         output_path: Option<&Path>,
         model: Option<&str>,
+        reasoning_effort: Option<&str>,
     ) -> String {
         let mut cmd = base_cmd.to_string();
+
+        let provider_args =
+            crate::core::backend_reasoning_cli_args(self.name, reasoning_effort).join(" ");
+        cmd = cmd.replace("{provider_args}", &provider_args);
 
         if let Some(m) = model {
             cmd = format!("{} --model {}", cmd, m);
@@ -122,6 +127,7 @@ impl CliBackend {
             input_path.as_deref().or(request.input_file.as_deref()),
             output_path.as_deref(),
             model.as_deref(),
+            request.reasoning_effort.as_deref(),
         );
 
         let config = CliRunnerConfig {
@@ -287,7 +293,11 @@ fn extract_claude_result_text(stdout: &str) -> Option<String> {
             }
         }
     }
-    if !text.is_empty() { Some(text) } else { None }
+    if !text.is_empty() {
+        Some(text)
+    } else {
+        None
+    }
 }
 
 /// Strip ANSI escape sequences and ASCII control characters (U+0000–U+001F, excluding
@@ -378,6 +388,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert_eq!(
@@ -405,12 +416,36 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert!(expanded.contains("\"enabled\":true"));
         assert!(expanded.contains("\"defaultMode\":\"acceptEdits\""));
         assert!(expanded.contains("\"allowWrite\":[\"//repo/candidate\",\"//repo/generated\"]"));
         assert!(expanded.contains("\"additionalDirectories\":[\"//repo/generated\"]"));
+    }
+
+    #[test]
+    fn expand_command_injects_codex_provider_args_from_request_fields() {
+        let backend = CliBackend {
+            name: "codex",
+            command_template: "codex {provider_args} exec -C {working_dir} -".to_string(),
+        };
+        let working_dir = PathBuf::from("/repo/candidate");
+
+        let expanded = backend.expand_command(
+            &backend.command_template,
+            &working_dir,
+            &[working_dir.clone()],
+            None,
+            None,
+            Some("gpt-5.3-codex"),
+            Some("medium"),
+        );
+
+        assert!(expanded.contains("--model gpt-5.3-codex"));
+        assert!(expanded.contains("model_reasoning_effort=\"medium\""));
+        assert!(!expanded.contains("{provider_args}"));
     }
 
     #[test]

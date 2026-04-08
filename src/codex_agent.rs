@@ -19,7 +19,7 @@ impl CodexAgent {
             // bubblewrap loopback setup under workspace-write. Use the same
             // non-bwrap mode as the working supervisor Codex session and let
             // oxstep constrain scope via working_dir + writable roots.
-            "codex -c approval_policy=\"never\" -c sandbox_mode=\"danger-full-access\" exec -C {working_dir} {add_dir_args} -".to_string()
+            "codex {provider_args} -c approval_policy=\"never\" -c sandbox_mode=\"danger-full-access\" exec -C {working_dir} {add_dir_args} -".to_string()
         });
         Self {
             cli: CliBackend {
@@ -72,6 +72,7 @@ impl TurnRunner for CodexAgent {
             request.input_file.as_deref(),
             None,
             request.model.as_deref(),
+            request.reasoning_effort.as_deref(),
         );
         let parts: Vec<String> = cmd
             .split_whitespace()

@@ -351,6 +351,7 @@ pub struct LLMRequest {
     pub runtime_env: Vec<(String, String)>,
     pub runtime_profile: Option<String>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub max_runtime_seconds: u32,
     pub stream_output: bool,
     /// Optional: If the prompt is already stored in a file.
@@ -444,6 +445,30 @@ pub fn normalize_model(backend_name: &str, model: Option<String>) -> Option<Stri
         return None;
     }
     Some(model)
+}
+
+pub fn normalize_reasoning_effort(reasoning_effort: Option<String>) -> Option<String> {
+    reasoning_effort.and_then(|effort| {
+        let normalized = effort.trim().to_lowercase();
+        if normalized.is_empty() {
+            None
+        } else {
+            Some(normalized)
+        }
+    })
+}
+
+pub fn backend_reasoning_cli_args(
+    backend_name: &str,
+    reasoning_effort: Option<&str>,
+) -> Vec<String> {
+    match (backend_name, reasoning_effort) {
+        ("codex", Some(effort)) => vec![
+            "-c".to_string(),
+            format!("model_reasoning_effort=\"{effort}\""),
+        ],
+        _ => Vec::new(),
+    }
 }
 
 fn is_claude_tier(model: &str) -> bool {

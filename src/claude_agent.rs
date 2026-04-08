@@ -20,9 +20,9 @@ impl ClaudeAgent {
             // batch/non-interactive mode — without it, Claude requests file-read
             // permissions that cannot be granted, causing EnvironmentError.
             if stream_output {
-                "claude --print --permission-mode bypassPermissions --settings {claude_settings} --output-format stream-json --include-partial-messages --verbose".to_string()
+                "claude {provider_args} --print --permission-mode bypassPermissions --settings {claude_settings} --output-format stream-json --include-partial-messages --verbose".to_string()
             } else {
-                "claude --print --permission-mode bypassPermissions --settings {claude_settings}".to_string()
+                "claude {provider_args} --print --permission-mode bypassPermissions --settings {claude_settings}".to_string()
             }
         });
         Self {
@@ -76,6 +76,7 @@ impl TurnRunner for ClaudeAgent {
             request.input_file.as_deref(),
             None,
             request.model.as_deref(),
+            request.reasoning_effort.as_deref(),
         );
         let parts: Vec<String> = cmd
             .split_whitespace()

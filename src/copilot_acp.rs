@@ -1271,6 +1271,7 @@ mod tests {
                 runtime_env: Vec::new(),
                 runtime_profile: None,
                 model: None,
+                reasoning_effort: None,
                 max_runtime_seconds: 5,
                 stream_output: false,
                 input_file: None,

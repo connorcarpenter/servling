@@ -53,6 +53,7 @@ impl SessionBackend for CodexSessionBackend {
             request.working_dir.clone(),
             request.writable_roots.clone(),
             request.model.clone(),
+            request.reasoning_effort.clone(),
             None,
         )))
     }
@@ -66,6 +67,7 @@ impl SessionBackend for CodexSessionBackend {
             request.working_dir.clone(),
             request.writable_roots.clone(),
             request.model.clone(),
+            request.reasoning_effort.clone(),
             Some(request.provider_session_ref.clone()),
         )))
     }
@@ -110,6 +112,7 @@ struct CodexSession {
     working_dir: PathBuf,
     writable_roots: Vec<PathBuf>,
     model: Option<String>,
+    reasoning_effort: Option<String>,
     handle_state: Mutex<ProviderSessionHandle>,
     queued_events: Mutex<VecDeque<SessionEvent>>,
 }
@@ -120,6 +123,7 @@ impl CodexSession {
         working_dir: PathBuf,
         writable_roots: Vec<PathBuf>,
         model: Option<String>,
+        reasoning_effort: Option<String>,
         provider_session_ref: Option<String>,
     ) -> Self {
         let status = SessionRuntimeStatus::Ready;
@@ -128,6 +132,7 @@ impl CodexSession {
             working_dir,
             writable_roots,
             model,
+            reasoning_effort,
             handle_state: Mutex::new(ProviderSessionHandle::new(
                 ProviderKind::Codex,
                 TransportKind::CliResumableTurns,
@@ -193,6 +198,7 @@ impl CodexSession {
             &self.working_dir,
             &self.writable_roots,
             self.model.as_deref(),
+            self.reasoning_effort.as_deref(),
             message,
         )?;
         cmd.output().context("failed to run Codex session turn")
@@ -363,6 +369,7 @@ fn build_turn_command(
     working_dir: &Path,
     writable_roots: &[PathBuf],
     model: Option<&str>,
+    reasoning_effort: Option<&str>,
     message: &str,
 ) -> Result<Command> {
     let mut cmd = if let Some(custom) = custom_command {
@@ -397,6 +404,10 @@ fn build_turn_command(
         // loopback setup in the outer-launcher environment, so use the
         // non-bwrap mode and rely on the caller's writable-root contract.
         .arg("sandbox_mode=\"danger-full-access\"");
+
+    for arg in crate::core::backend_reasoning_cli_args("codex", reasoning_effort) {
+        cmd.arg(arg);
+    }
 
     if !is_resume {
         cmd.arg("-C").arg(working_dir);
@@ -449,6 +460,7 @@ mod tests {
             &working_dir,
             &[],
             None,
+            None,
             "hello",
         )
         .unwrap();
@@ -480,6 +492,7 @@ mod tests {
             &working_dir,
             &[PathBuf::from("/tmp/extra")],
             None,
+            None,
             "hello",
         )
         .unwrap();
@@ -508,8 +521,16 @@ mod tests {
     fn new_session_with_extra_roots_includes_add_dir() {
         let working_dir = PathBuf::from("/tmp/ws");
         let extra = PathBuf::from("/tmp/extra");
-        let cmd =
-            build_turn_command(None, None, &working_dir, &[extra.clone()], None, "hello").unwrap();
+        let cmd = build_turn_command(
+            None,
+            None,
+            &working_dir,
+            &[extra.clone()],
+            None,
+            None,
+            "hello",
+        )
+        .unwrap();
         let args: Vec<_> = cmd.get_args().collect();
         let args_str: Vec<_> = args.iter().map(|a| a.to_string_lossy()).collect();
         assert!(
@@ -545,6 +566,7 @@ mod tests {
             working_dir: working_dir.clone(),
             writable_roots: vec![],
             model: None,
+            reasoning_effort: None,
         };
         let session = backend
             .start_session(&start_req)
@@ -588,6 +610,7 @@ mod tests {
             working_dir: working_dir.clone(),
             writable_roots: vec![],
             model: None,
+            reasoning_effort: None,
             provider_session_ref: session_ref.clone(),
         };
         let resumed = backend

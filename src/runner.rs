@@ -271,7 +271,10 @@ fn wait_with_streaming(
                     eprintln!(
                         "[servling/runner] Environment failure detected — killing process. \
                          Matched pattern: {:?} (stdout_len={}, stderr_len={}, elapsed={:.1}s)",
-                        pattern, stdout.len(), stderr.len(), start.elapsed().as_secs_f64()
+                        pattern,
+                        stdout.len(),
+                        stderr.len(),
+                        start.elapsed().as_secs_f64()
                     );
                     let _ = child.kill();
                     let _ = child.wait();

@@ -98,6 +98,7 @@ pub struct SessionStartRequest {
     pub working_dir: PathBuf,
     pub writable_roots: Vec<PathBuf>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
 }
 
 impl SessionStartRequest {
@@ -107,6 +108,7 @@ impl SessionStartRequest {
             writable_roots: vec![working_dir.clone()],
             working_dir,
             model: None,
+            reasoning_effort: None,
         }
     }
 
@@ -117,6 +119,11 @@ impl SessionStartRequest {
 
     pub fn model(mut self, model: impl Into<Option<String>>) -> Self {
         self.model = model.into();
+        self
+    }
+
+    pub fn reasoning_effort(mut self, reasoning_effort: impl Into<Option<String>>) -> Self {
+        self.reasoning_effort = reasoning_effort.into();
         self
     }
 }
@@ -127,6 +134,7 @@ pub struct SessionResumeRequest {
     pub writable_roots: Vec<PathBuf>,
     pub provider_session_ref: String,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
 }
 
 impl SessionResumeRequest {
@@ -137,6 +145,7 @@ impl SessionResumeRequest {
             writable_roots: vec![working_dir.clone()],
             working_dir,
             model: None,
+            reasoning_effort: None,
         }
     }
 
@@ -147,6 +156,11 @@ impl SessionResumeRequest {
 
     pub fn model(mut self, model: impl Into<Option<String>>) -> Self {
         self.model = model.into();
+        self
+    }
+
+    pub fn reasoning_effort(mut self, reasoning_effort: impl Into<Option<String>>) -> Self {
+        self.reasoning_effort = reasoning_effort.into();
         self
     }
 }

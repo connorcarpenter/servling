@@ -15,7 +15,7 @@ pub struct CopilotAgent {
 impl CopilotAgent {
     pub fn new(command: Option<String>) -> Self {
         let template = command.unwrap_or_else(|| {
-            "copilot -p @{input_file} --disable-builtin-mcps --no-custom-instructions --allow-all-tools --no-ask-user --disallow-temp-dir --add-dir {writable_root} {add_dir_args}".to_string()
+            "copilot {provider_args} -p @{input_file} --disable-builtin-mcps --no-custom-instructions --allow-all-tools --no-ask-user --disallow-temp-dir --add-dir {writable_root} {add_dir_args}".to_string()
         });
         Self {
             cli: CliBackend {
@@ -40,7 +40,7 @@ impl CopilotAgent {
             // without it, tool calls require per-call approval, and --no-ask-user
             // denies them — so the model must respond with plain text.
             // --add-dir is still needed so Copilot can read the @{input_file} prompt.
-            "copilot -p @{input_file} --disable-builtin-mcps --no-custom-instructions --no-ask-user --disallow-temp-dir --add-dir {writable_root} {add_dir_args}".to_string()
+            "copilot {provider_args} -p @{input_file} --disable-builtin-mcps --no-custom-instructions --no-ask-user --disallow-temp-dir --add-dir {writable_root} {add_dir_args}".to_string()
         });
         Self {
             cli: CliBackend {
@@ -98,6 +98,7 @@ impl TurnRunner for CopilotAgent {
                 .as_deref()
                 .map(|m| expand_model_name(m))
                 .as_deref(),
+            request.reasoning_effort.as_deref(),
         );
         let parts: Vec<String> = cmd
             .split_whitespace()
