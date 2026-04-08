@@ -11,6 +11,8 @@ pub enum ProviderKind {
     Claude,
     Codex,
     Copilot,
+    /// Cursor CLI (`agent` on PATH).
+    Cursor,
     Composite,
 }
 
@@ -437,7 +439,7 @@ pub struct RunnerInvocation {
 pub fn normalize_model(backend_name: &str, model: Option<String>) -> Option<String> {
     let model = model?;
     // Claude models pass through to Claude backend
-    if backend_name == "claude" {
+    if backend_name == "claude" || backend_name == "cursor" {
         return Some(model);
     }
     // Generic tiers are stripped for non-claude backends unless they match

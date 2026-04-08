@@ -305,6 +305,17 @@ fn model_matches_backend(model: &str, backend: &str) -> bool {
                 || model.starts_with("o4")
         }
         "copilot" => model.contains("copilot"),
+        "cursor" => {
+            model.contains("cursor")
+                || model.contains("gpt-")
+                || model.contains("o1")
+                || model.contains("o3")
+                || model.contains("o4")
+                || model.contains("sonnet")
+                || model.contains("opus")
+                || model.contains("haiku")
+                || model.contains("gemini")
+        }
         _ => false,
     }
 }
@@ -391,7 +402,8 @@ mod tests {
               "reasoning_effort": "medium",
               "backends": {
                 "claude": { "disabled": true },
-                "copilot": { "disabled": true }
+                "copilot": { "disabled": true },
+                "cursor": { "disabled": true }
               }
             }"#,
         )

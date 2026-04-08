@@ -9,6 +9,8 @@ pub mod codex_session;
 pub mod coding_agent;
 pub mod copilot_acp;
 pub mod copilot_agent;
+pub mod cursor_agent;
+pub mod cursor_session;
 pub mod core;
 pub mod runner;
 pub mod session;
@@ -40,6 +42,8 @@ pub use coding_agent::{
 };
 pub use copilot_acp::CopilotAcpBackend;
 pub use copilot_agent::CopilotAgent;
+pub use cursor_agent::CursorAgent;
+pub use cursor_session::CursorSessionBackend;
 pub use runner::{run_cli_runner, CliRunnerConfig, CliRunnerOutcome};
 pub use session::{
     ProviderSessionHandle, SessionBackend, SessionBackendBox, SessionEvent, SessionResumeRequest,

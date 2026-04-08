@@ -178,6 +178,13 @@ impl CliBackend {
                 // double-newline.  Additionally, ANSI escape sequences and raw control chars
                 // sometimes leak into the output and must be stripped before JSON parsing.
                 extract_copilot_result_text(&stdout_text)
+            } else if self.name == "cursor" {
+                // Cursor Agent `--output-format stream-json` matches Claude-style JSONL
+                // (starts with a `system` event).  `--output-format json` emits a single
+                // `result` object; extract that when stream-json parsing does not apply.
+                extract_claude_result_text(&stdout_text)
+                    .or_else(|| extract_compact_agent_result_text(&stdout_text))
+                    .unwrap_or(stdout_text)
             } else {
                 // Claude CLI outputs JSONL streaming events.  Extract the actual
                 // text content from the `{"type":"result","result":"..."}` event
@@ -251,6 +258,22 @@ fn claude_path(path: &Path) -> String {
 /// - `{"type":"result","subtype":"success","result":"<text>"}` — the canonical path
 /// - `{"type":"assistant","message":{"content":[{"type":"text","text":"<text>"}]}}` — fallback
 ///
+/// Cursor Agent `--output-format json` (non-streaming) prints one JSON object with
+/// `type: "result"` / `subtype: "success"` and a string `result` field.
+fn extract_compact_agent_result_text(stdout: &str) -> Option<String> {
+    let line = stdout.trim();
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    if v.get("type").and_then(|t| t.as_str()) == Some("result")
+        && v.get("subtype").and_then(|s| s.as_str()) == Some("success")
+    {
+        return v
+            .get("result")
+            .and_then(|r| r.as_str())
+            .map(|s| s.to_string());
+    }
+    None
+}
+
 /// Returns `None` if the input doesn't look like Claude JSONL (i.e., falls back to
 /// treating `stdout_text` as raw text, preserving existing non-Claude behavior).
 fn extract_claude_result_text(stdout: &str) -> Option<String> {
@@ -484,5 +507,12 @@ mod tests {
         // Fallback returns the stripped full text
         assert!(result.contains("Just prose, no JSON here."));
         assert!(!result.contains('\x1b'));
+    }
+
+    #[test]
+    fn extract_compact_agent_result_text_reads_cursor_json_mode() {
+        let stdout = r#"{"type":"result","subtype":"success","is_error":false,"result":"\nHi","session_id":"c9596ba2-e8b1-4985-883c-7f22683923e4"}"#;
+        let result = extract_compact_agent_result_text(stdout).expect("parsed");
+        assert_eq!(result, "\nHi");
     }
 }

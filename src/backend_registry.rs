@@ -5,6 +5,8 @@ use crate::codex_agent::CodexAgent;
 use crate::codex_session::CodexSessionBackend;
 use crate::copilot_acp::CopilotAcpBackend;
 use crate::copilot_agent::CopilotAgent;
+use crate::cursor_agent::CursorAgent;
+use crate::cursor_session::CursorSessionBackend;
 use crate::core::{ProviderKind, Servling};
 use crate::session::SessionBackendBox;
 
@@ -68,6 +70,16 @@ fn build_copilot_session(command: Option<String>) -> Result<SessionBackendBox> {
     Ok(Box::new(CopilotAcpBackend::new(command)))
 }
 
+fn build_cursor_batch(command: Option<String>) -> Result<Box<dyn Servling>> {
+    CursorAgent::check_available()?;
+    Ok(Box::new(CursorAgent::new(command, true)))
+}
+
+fn build_cursor_session(command: Option<String>) -> Result<SessionBackendBox> {
+    CursorSessionBackend::check_available()?;
+    Ok(Box::new(CursorSessionBackend::new(command)))
+}
+
 const BACKENDS: &[BackendDescriptor] = &[
     BackendDescriptor {
         name: "claude",
@@ -87,10 +99,16 @@ const BACKENDS: &[BackendDescriptor] = &[
         batch_builder: Some(build_copilot_batch),
         session_builder: Some(build_copilot_session),
     },
+    BackendDescriptor {
+        name: "cursor",
+        provider_kind: ProviderKind::Cursor,
+        batch_builder: Some(build_cursor_batch),
+        session_builder: Some(build_cursor_session),
+    },
 ];
 
-const DEFAULT_BATCH_BACKENDS: &[&str] = &["claude", "codex", "copilot"];
-const DEFAULT_SESSION_BACKENDS: &[&str] = &["codex", "copilot"];
+const DEFAULT_BATCH_BACKENDS: &[&str] = &["claude", "codex", "copilot", "cursor"];
+const DEFAULT_SESSION_BACKENDS: &[&str] = &["codex", "copilot", "cursor"];
 
 pub fn all_backend_descriptors() -> &'static [BackendDescriptor] {
     BACKENDS
@@ -139,15 +157,22 @@ mod tests {
         let claude = find_backend_descriptor("claude").expect("claude descriptor");
         assert!(claude.supports_batch_lane());
         assert!(!claude.supports_session_lane());
+
+        let cursor = find_backend_descriptor("cursor").expect("cursor descriptor");
+        assert!(cursor.supports_batch_lane());
+        assert!(cursor.supports_session_lane());
     }
 
     #[test]
     fn default_lane_orders_are_explicit() {
         assert_eq!(
             default_batch_backend_names(),
-            &["claude", "codex", "copilot"]
+            &["claude", "codex", "copilot", "cursor"]
         );
-        assert_eq!(default_session_backend_names(), &["codex", "copilot"]);
-        assert_eq!(all_backend_descriptors().len(), 3);
+        assert_eq!(
+            default_session_backend_names(),
+            &["codex", "copilot", "cursor"]
+        );
+        assert_eq!(all_backend_descriptors().len(), 4);
     }
 }
