@@ -5,9 +5,9 @@ use crate::codex_agent::CodexAgent;
 use crate::codex_session::CodexSessionBackend;
 use crate::copilot_acp::CopilotAcpBackend;
 use crate::copilot_agent::CopilotAgent;
+use crate::core::{ProviderKind, Servling};
 use crate::cursor_agent::CursorAgent;
 use crate::cursor_session::CursorSessionBackend;
-use crate::core::{ProviderKind, Servling};
 use crate::session::SessionBackendBox;
 
 type BatchBuilder = fn(Option<String>) -> Result<Box<dyn Servling>>;

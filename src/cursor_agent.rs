@@ -62,8 +62,7 @@ impl Backend for CursorAgent {
 
 impl TurnRunner for CursorAgent {
     fn execute(&self, request: &LLMRequest) -> Result<LLMResponse> {
-        self.cli
-            .execute_with_expansion(request, true, None)
+        self.cli.execute_with_expansion(request, true, None)
     }
 
     fn planned_invocation(&self, request: &LLMRequest) -> Option<RunnerInvocation> {

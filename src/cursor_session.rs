@@ -172,7 +172,11 @@ impl CursorSession {
         Ok(stop_reason)
     }
 
-    fn execute_cursor_turn(&self, session_ref: &str, message: &str) -> Result<std::process::Output> {
+    fn execute_cursor_turn(
+        &self,
+        session_ref: &str,
+        message: &str,
+    ) -> Result<std::process::Output> {
         let mut cmd = build_turn_command(
             self.command.as_deref(),
             session_ref,
@@ -181,12 +185,14 @@ impl CursorSession {
             self.reasoning_effort.as_deref(),
         )?;
 
-        let mission_dir_abs = std::fs::canonicalize(&self.working_dir)
-            .unwrap_or_else(|_| self.working_dir.clone());
+        let mission_dir_abs =
+            std::fs::canonicalize(&self.working_dir).unwrap_or_else(|_| self.working_dir.clone());
         cmd.env("TESAKI_MISSION_DIR", mission_dir_abs);
 
         cmd.stdin(Stdio::piped());
-        let mut child = cmd.spawn().context("failed to spawn Cursor Agent session turn")?;
+        let mut child = cmd
+            .spawn()
+            .context("failed to spawn Cursor Agent session turn")?;
         if let Some(mut stdin) = child.stdin.take() {
             stdin
                 .write_all(message.as_bytes())
