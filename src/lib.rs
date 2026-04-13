@@ -3,6 +3,7 @@
 pub mod backend_policy;
 pub mod backend_registry;
 pub mod claude_agent;
+pub mod claude_session;
 pub mod cli_backend;
 pub mod codex_agent;
 pub mod codex_session;
@@ -33,6 +34,7 @@ pub use crate::core::{
     SessionResumeKind, TransportKind, TurnRunner,
 };
 pub use claude_agent::ClaudeAgent;
+pub use claude_session::ClaudeSessionBackend;
 pub use cli_backend::CliBackend;
 pub use codex_agent::CodexAgent;
 pub use codex_session::CodexSessionBackend;

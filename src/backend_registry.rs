@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 
 use crate::claude_agent::ClaudeAgent;
+use crate::claude_session::ClaudeSessionBackend;
 use crate::codex_agent::CodexAgent;
 use crate::codex_session::CodexSessionBackend;
 use crate::copilot_acp::CopilotAcpBackend;
@@ -50,6 +51,11 @@ fn build_claude_batch(command: Option<String>) -> Result<Box<dyn Servling>> {
     Ok(Box::new(ClaudeAgent::new(command, true)))
 }
 
+fn build_claude_session(command: Option<String>) -> Result<SessionBackendBox> {
+    ClaudeSessionBackend::check_available()?;
+    Ok(Box::new(ClaudeSessionBackend::new(command)))
+}
+
 fn build_codex_batch(command: Option<String>) -> Result<Box<dyn Servling>> {
     CodexAgent::check_available()?;
     Ok(Box::new(CodexAgent::new(command)))
@@ -85,7 +91,7 @@ const BACKENDS: &[BackendDescriptor] = &[
         name: "claude",
         provider_kind: ProviderKind::Claude,
         batch_builder: Some(build_claude_batch),
-        session_builder: None,
+        session_builder: Some(build_claude_session),
     },
     BackendDescriptor {
         name: "codex",
@@ -108,7 +114,7 @@ const BACKENDS: &[BackendDescriptor] = &[
 ];
 
 const DEFAULT_BATCH_BACKENDS: &[&str] = &["claude", "codex", "copilot", "cursor"];
-const DEFAULT_SESSION_BACKENDS: &[&str] = &["codex", "copilot", "cursor"];
+const DEFAULT_SESSION_BACKENDS: &[&str] = &["claude", "codex", "copilot", "cursor"];
 
 pub fn all_backend_descriptors() -> &'static [BackendDescriptor] {
     BACKENDS
@@ -156,7 +162,7 @@ mod tests {
 
         let claude = find_backend_descriptor("claude").expect("claude descriptor");
         assert!(claude.supports_batch_lane());
-        assert!(!claude.supports_session_lane());
+        assert!(claude.supports_session_lane());
 
         let cursor = find_backend_descriptor("cursor").expect("cursor descriptor");
         assert!(cursor.supports_batch_lane());
@@ -171,7 +177,7 @@ mod tests {
         );
         assert_eq!(
             default_session_backend_names(),
-            &["codex", "copilot", "cursor"]
+            &["claude", "codex", "copilot", "cursor"]
         );
         assert_eq!(all_backend_descriptors().len(), 4);
     }
