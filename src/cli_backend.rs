@@ -221,19 +221,14 @@ fn build_claude_settings(working_dir: &Path, writable_roots: &[PathBuf]) -> Stri
         .filter(|root| root.as_path() != working_dir)
         .map(|root| claude_path(root))
         .collect::<Vec<_>>();
-    let allow_write = writable_roots
-        .iter()
-        .map(|root| claude_path(root))
-        .collect::<Vec<_>>();
-
+    // Sandbox is explicitly disabled: Claude Code's bwrap (bubblewrap) layer
+    // requires CAP_NET_ADMIN for loopback namespace creation, which is not
+    // available in typical server/CI environments.  The --permission-mode
+    // bypassPermissions flag (set in the command template) already covers the
+    // approval model; filesystem scope is handled via additionalDirectories.
     json!({
         "sandbox": {
-            "enabled": true,
-            "autoAllowBashIfSandboxed": true,
-            "allowUnsandboxedCommands": true,
-            "filesystem": {
-                "allowWrite": allow_write,
-            }
+            "enabled": false,
         },
         "permissions": {
             "defaultMode": "acceptEdits",
