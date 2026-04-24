@@ -96,7 +96,7 @@ impl TurnRunner for CopilotAgent {
             request
                 .model
                 .as_deref()
-                .map(|m| expand_model_name(m))
+                .map(expand_model_name)
                 .as_deref(),
             request.reasoning_effort.as_deref(),
         );

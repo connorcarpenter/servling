@@ -212,7 +212,7 @@ impl SessionBackend for CopilotAcpBackend {
                     tokio::task::spawn_local(fut);
                 },
             );
-            let io_handle = tokio::task::spawn_local(async move { io_task.await });
+            let io_handle = tokio::task::spawn_local(io_task);
 
             conn.initialize(acp::InitializeRequest::new(acp::ProtocolVersion::V1))
                 .await
@@ -324,6 +324,10 @@ struct TurnTaskResult {
     result: Result<SessionStopReason>,
 }
 
+// Distinct worker-thread handles (tx, rx, state, launch args) that
+// must each be moved in; grouping them into a struct would hide
+// intent rather than clarify it.
+#[allow(clippy::too_many_arguments)]
 fn run_worker(
     program: String,
     args: Vec<String>,
@@ -359,7 +363,7 @@ fn run_worker(
             },
         );
         let conn = Rc::new(conn);
-        let mut io_handle = tokio::task::spawn_local(async move { io_task.await });
+        let mut io_handle = tokio::task::spawn_local(io_task);
         let (turn_result_tx, mut turn_result_rx) = tokio_mpsc::unbounded_channel();
 
         conn.initialize(

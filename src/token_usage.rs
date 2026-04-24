@@ -455,7 +455,7 @@ fn extract_model_tier(model: &str) -> &str {
     } else if lower.contains("gpt-3") || lower.contains("gpt3") {
         "gpt-3.5"
     } else {
-        model.split('-').last().unwrap_or(model)
+        model.split('-').next_back().unwrap_or(model)
     }
 }
 

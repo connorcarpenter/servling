@@ -14,7 +14,22 @@ pub struct CliBackend {
     pub command_template: String,
 }
 
+/// Return type of [`CliBackend::prepare_temp_files`]: optional input
+/// NamedTempFile + its path, and optional output NamedTempFile + its
+/// path. Each file is `Some` only when the command template
+/// references `{input_file}`/`{mission_dir}` or `{output_file}`
+/// respectively; `None` otherwise.
+type TempFilePair = (
+    Option<tempfile::NamedTempFile>,
+    Option<PathBuf>,
+    Option<tempfile::NamedTempFile>,
+    Option<PathBuf>,
+);
+
 impl CliBackend {
+    // Distinct CLI-invocation parameters (paths, model, reasoning, etc.)
+    // — grouping them into a struct would save no code and hide intent.
+    #[allow(clippy::too_many_arguments)]
     pub fn expand_command(
         &self,
         base_cmd: &str,
@@ -72,12 +87,7 @@ impl CliBackend {
         &self,
         prompt: &str,
         temp_dir: &Path,
-    ) -> Result<(
-        Option<tempfile::NamedTempFile>,
-        Option<PathBuf>,
-        Option<tempfile::NamedTempFile>,
-        Option<PathBuf>,
-    )> {
+    ) -> Result<TempFilePair> {
         let mut temp_input = None;
         let mut input_path = None;
         if self.command_template.contains("{input_file}")

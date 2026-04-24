@@ -190,22 +190,20 @@ fn wait_with_streaming(
     let stdout_thread = stdout_handle.map(|stdout| {
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    if stream {
-                        if let Some(rendered) = format_stream_line(&line) {
-                            if rendered.newline {
-                                let _ = writeln!(std::io::stdout(), "{}", rendered.text);
-                            } else {
-                                let _ = write!(std::io::stdout(), "{}", rendered.text);
-                                let _ = std::io::stdout().flush();
-                            }
+            for line in reader.lines().map_while(Result::ok) {
+                if stream {
+                    if let Some(rendered) = format_stream_line(&line) {
+                        if rendered.newline {
+                            let _ = writeln!(std::io::stdout(), "{}", rendered.text);
+                        } else {
+                            let _ = write!(std::io::stdout(), "{}", rendered.text);
+                            let _ = std::io::stdout().flush();
                         }
                     }
-                    let mut buf = stdout_buf_clone.lock().unwrap();
-                    buf.extend_from_slice(line.as_bytes());
-                    buf.push(b'\n');
                 }
+                let mut buf = stdout_buf_clone.lock().unwrap();
+                buf.extend_from_slice(line.as_bytes());
+                buf.push(b'\n');
             }
         })
     });
@@ -213,22 +211,20 @@ fn wait_with_streaming(
     let stderr_thread = stderr_handle.map(|stderr| {
         thread::spawn(move || {
             let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    if stream {
-                        if let Some(rendered) = format_stream_line(&line) {
-                            if rendered.newline {
-                                let _ = writeln!(std::io::stderr(), "{}", rendered.text);
-                            } else {
-                                let _ = write!(std::io::stderr(), "{}", rendered.text);
-                                let _ = std::io::stderr().flush();
-                            }
+            for line in reader.lines().map_while(Result::ok) {
+                if stream {
+                    if let Some(rendered) = format_stream_line(&line) {
+                        if rendered.newline {
+                            let _ = writeln!(std::io::stderr(), "{}", rendered.text);
+                        } else {
+                            let _ = write!(std::io::stderr(), "{}", rendered.text);
+                            let _ = std::io::stderr().flush();
                         }
                     }
-                    let mut buf = stderr_buf_clone.lock().unwrap();
-                    buf.extend_from_slice(line.as_bytes());
-                    buf.push(b'\n');
                 }
+                let mut buf = stderr_buf_clone.lock().unwrap();
+                buf.extend_from_slice(line.as_bytes());
+                buf.push(b'\n');
             }
         })
     });
@@ -626,7 +622,7 @@ fn truncate_line(input: &str, max_chars: usize) -> String {
     let mut line = input.lines().next().unwrap_or("").trim().to_string();
     if line.len() > max_chars {
         line.truncate(max_chars);
-        line.push_str("…");
+        line.push('…');
     }
     line
 }
