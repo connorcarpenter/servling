@@ -531,7 +531,7 @@ mod tests {
             None,
             None,
             &working_dir,
-            &[extra.clone()],
+            std::slice::from_ref(&extra),
             None,
             None,
             "hello",

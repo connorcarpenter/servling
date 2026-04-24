@@ -1116,17 +1116,14 @@ mod tests {
 
         let mut chunks = Vec::new();
         for _ in 0..4 {
-            if let Some(event) = session
+            if let Some(SessionEvent::ContentChunk {
+                kind: SessionContentKind::Assistant,
+                text,
+            }) = session
                 .next_event(Duration::from_secs(1))
                 .expect("event read")
             {
-                if let SessionEvent::ContentChunk {
-                    kind: SessionContentKind::Assistant,
-                    text,
-                } = event
-                {
-                    chunks.push(text);
-                }
+                chunks.push(text);
             }
         }
         assert_eq!(chunks.concat(), "fake response");
@@ -1183,12 +1180,9 @@ mod tests {
                 .next_event(Duration::from_secs(1))
                 .expect("event read")
                 .expect("event");
-            match event {
-                SessionEvent::StatusChanged {
+            if let SessionEvent::StatusChanged {
                     status: SessionRuntimeStatus::Running,
-                } => break,
-                _ => {}
-            }
+                } = event { break }
         }
 
         let second_turn_error = futures::executor::block_on(
@@ -1354,15 +1348,10 @@ mod tests {
 
         // Drain remaining queued events from the turn
         let mut turn_events: Vec<String> = Vec::new();
-        loop {
-            match session.next_event(Duration::from_millis(300)) {
-                Ok(Some(event)) => {
-                    let label = format!("{event:?}");
-                    eprintln!("[probe/turn] {label}");
-                    turn_events.push(label);
-                }
-                _ => break,
-            }
+        while let Ok(Some(event)) = session.next_event(Duration::from_millis(300)) {
+            let label = format!("{event:?}");
+            eprintln!("[probe/turn] {label}");
+            turn_events.push(label);
         }
         eprintln!("[probe] turn events drained: {} events", turn_events.len());
 
@@ -1462,14 +1451,9 @@ mod tests {
             );
             if join.is_finished() {
                 // Drain a bit more to capture TurnCompleted + StatusChanged
-                loop {
-                    match session.next_event(Duration::from_millis(200)) {
-                        Ok(Some(event)) => {
-                            eprintln!("[probe/interrupt/post] {event:?}");
-                            post_events.push(format!("{event:?}"));
-                        }
-                        _ => break,
-                    }
+                while let Ok(Some(event)) = session.next_event(Duration::from_millis(200)) {
+                    eprintln!("[probe/interrupt/post] {event:?}");
+                    post_events.push(format!("{event:?}"));
                 }
                 break;
             }

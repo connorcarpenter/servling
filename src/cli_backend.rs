@@ -468,7 +468,7 @@ mod tests {
         let expanded = backend.expand_command(
             &backend.command_template,
             &working_dir,
-            &[working_dir.clone()],
+            std::slice::from_ref(&working_dir),
             None,
             None,
             Some("gpt-5.3-codex"),
