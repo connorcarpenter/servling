@@ -11,6 +11,11 @@ path = "src/lib.rs"
 # Error handling
 anyhow = "1.0"
 
+# Off-load blocking child-process spawns to a dedicated threadpool
+# so the caller's async executor isn't stalled for the duration of
+# a CLI invocation.
+blocking = "1.6"
+
 # ACP session transport
 agent-client-protocol = { version = "0.10.2", features = ["unstable_session_model"] }
 async-trait = "0.1"

@@ -25,7 +25,7 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -71,24 +71,24 @@ impl Backend for ClaudeSessionBackend {
 
 impl SessionBackend for ClaudeSessionBackend {
     fn start_session(&self, request: &SessionStartRequest) -> Result<Box<dyn InteractiveSession>> {
-        Ok(Box::new(ClaudeSession::new(
+        Ok(Box::new(Arc::new(ClaudeSession::new(
             self.command.clone(),
             request.working_dir.clone(),
             request.model.clone(),
             None, // no prior session ref → new conversation
-        )))
+        ))))
     }
 
     fn resume_session(
         &self,
         request: &SessionResumeRequest,
     ) -> Result<Box<dyn InteractiveSession>> {
-        Ok(Box::new(ClaudeSession::new(
+        Ok(Box::new(Arc::new(ClaudeSession::new(
             self.command.clone(),
             request.working_dir.clone(),
             request.model.clone(),
             Some(request.provider_session_ref.clone()),
-        )))
+        ))))
     }
 
     /// Returns sessions from `claude sessions list --output-format json`.
@@ -376,18 +376,37 @@ impl ClaudeSession {
     }
 }
 
-#[async_trait::async_trait]
-impl InteractiveSession for ClaudeSession {
-    fn handle(&self) -> ProviderSessionHandle {
+impl ClaudeSession {
+    /// Exposed as an inherent method so unit tests can build a
+    /// `ClaudeSession` directly without wrapping in `Arc` just to
+    /// call the trait. The `InteractiveSession` impl on
+    /// `Arc<ClaudeSession>` delegates here.
+    pub fn handle(&self) -> ProviderSessionHandle {
         self.handle_state.lock().unwrap().clone()
     }
 
-    fn status(&self) -> SessionRuntimeStatus {
+    pub fn status(&self) -> SessionRuntimeStatus {
         self.handle_state.lock().unwrap().status.clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl InteractiveSession for Arc<ClaudeSession> {
+    fn handle(&self) -> ProviderSessionHandle {
+        ClaudeSession::handle(self)
+    }
+
+    fn status(&self) -> SessionRuntimeStatus {
+        ClaudeSession::status(self)
     }
 
     async fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason> {
-        self.run_turn(&request.message)
+        // Run the synchronous claude child-process invocation on the
+        // blocking threadpool so the caller's async executor isn't
+        // stalled for the duration of the CLI turn.
+        let session = Arc::clone(self);
+        let message = request.message.clone();
+        blocking::unblock(move || session.run_turn(&message)).await
     }
 
     async fn interrupt(&self) -> Result<()> {
@@ -595,11 +614,12 @@ mod tests {
             reasoning_effort: None,
         };
         let session = backend.start_session(&start_req).unwrap();
-        let stop = session
-            .send_user_turn(&crate::session::UserTurnRequest {
+        let stop = futures::executor::block_on(session.send_user_turn(
+            &crate::session::UserTurnRequest {
                 message: "Reply with exactly: PROBE_OK".to_string(),
-            })
-            .unwrap();
+            },
+        ))
+        .unwrap();
 
         let mut events = Vec::new();
         while let Ok(Some(ev)) = session.next_event(Duration::from_millis(100)) {
@@ -627,11 +647,12 @@ mod tests {
             provider_session_ref: session_ref.clone(),
         };
         let resumed = backend.resume_session(&resume_req).unwrap();
-        let stop2 = resumed
-            .send_user_turn(&crate::session::UserTurnRequest {
+        let stop2 = futures::executor::block_on(resumed.send_user_turn(
+            &crate::session::UserTurnRequest {
                 message: "Reply with exactly: RESUME_OK".to_string(),
-            })
-            .unwrap();
+            },
+        ))
+        .unwrap();
 
         let mut resume_events = Vec::new();
         while let Ok(Some(ev)) = resumed.next_event(Duration::from_millis(100)) {

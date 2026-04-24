@@ -4,7 +4,7 @@ use std::collections::{HashSet, VecDeque};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -49,28 +49,28 @@ impl Backend for CursorSessionBackend {
 impl SessionBackend for CursorSessionBackend {
     fn start_session(&self, request: &SessionStartRequest) -> Result<Box<dyn InteractiveSession>> {
         let chat_id = run_create_chat(self.command.as_deref())?;
-        Ok(Box::new(CursorSession::new(
+        Ok(Box::new(Arc::new(CursorSession::new(
             self.command.clone(),
             request.working_dir.clone(),
             request.writable_roots.clone(),
             request.model.clone(),
             request.reasoning_effort.clone(),
             Some(chat_id),
-        )))
+        ))))
     }
 
     fn resume_session(
         &self,
         request: &SessionResumeRequest,
     ) -> Result<Box<dyn InteractiveSession>> {
-        Ok(Box::new(CursorSession::new(
+        Ok(Box::new(Arc::new(CursorSession::new(
             self.command.clone(),
             request.working_dir.clone(),
             request.writable_roots.clone(),
             request.model.clone(),
             request.reasoning_effort.clone(),
             Some(request.provider_session_ref.clone()),
-        )))
+        ))))
     }
 
     fn list_sessions(&self) -> Result<Vec<ProviderSessionListing>> {
@@ -289,7 +289,7 @@ impl CursorSession {
 }
 
 #[async_trait::async_trait]
-impl InteractiveSession for CursorSession {
+impl InteractiveSession for Arc<CursorSession> {
     fn handle(&self) -> ProviderSessionHandle {
         self.handle_state.lock().unwrap().clone()
     }
@@ -299,7 +299,12 @@ impl InteractiveSession for CursorSession {
     }
 
     async fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason> {
-        self.run_turn(&request.message)
+        // Run the synchronous cursor child-process invocation on the
+        // blocking threadpool so the caller's async executor isn't
+        // stalled for the duration of the CLI turn.
+        let session = Arc::clone(self);
+        let message = request.message.clone();
+        blocking::unblock(move || session.run_turn(&message)).await
     }
 
     async fn interrupt(&self) -> Result<()> {
@@ -502,11 +507,12 @@ mod tests {
         let session = backend
             .start_session(&start_req)
             .expect("start_session should succeed");
-        let stop = session
-            .send_user_turn(&UserTurnRequest {
+        let stop = futures::executor::block_on(session.send_user_turn(
+            &UserTurnRequest {
                 message: "Reply with exactly: CURSOR_PROBE_OK".to_string(),
-            })
-            .expect("send_user_turn should succeed");
+            },
+        ))
+        .expect("send_user_turn should succeed");
 
         let mut events = Vec::new();
         while let Ok(Some(ev)) = session.next_event(Duration::from_millis(100)) {
@@ -544,11 +550,12 @@ mod tests {
         let resumed = backend
             .resume_session(&resume_req)
             .expect("resume_session should succeed");
-        let stop2 = resumed
-            .send_user_turn(&UserTurnRequest {
+        let stop2 = futures::executor::block_on(resumed.send_user_turn(
+            &UserTurnRequest {
                 message: "Reply with exactly: CURSOR_RESUME_OK".to_string(),
-            })
-            .expect("resumed send_user_turn should succeed");
+            },
+        ))
+        .expect("resumed send_user_turn should succeed");
 
         let mut resume_events = Vec::new();
         while let Ok(Some(ev)) = resumed.next_event(Duration::from_millis(100)) {

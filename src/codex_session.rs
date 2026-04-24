@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -48,28 +48,28 @@ impl Backend for CodexSessionBackend {
 
 impl SessionBackend for CodexSessionBackend {
     fn start_session(&self, request: &SessionStartRequest) -> Result<Box<dyn InteractiveSession>> {
-        Ok(Box::new(CodexSession::new(
+        Ok(Box::new(Arc::new(CodexSession::new(
             self.command.clone(),
             request.working_dir.clone(),
             request.writable_roots.clone(),
             request.model.clone(),
             request.reasoning_effort.clone(),
             None,
-        )))
+        ))))
     }
 
     fn resume_session(
         &self,
         request: &SessionResumeRequest,
     ) -> Result<Box<dyn InteractiveSession>> {
-        Ok(Box::new(CodexSession::new(
+        Ok(Box::new(Arc::new(CodexSession::new(
             self.command.clone(),
             request.working_dir.clone(),
             request.writable_roots.clone(),
             request.model.clone(),
             request.reasoning_effort.clone(),
             Some(request.provider_session_ref.clone()),
-        )))
+        ))))
     }
 
     fn list_sessions(&self) -> Result<Vec<ProviderSessionListing>> {
@@ -295,7 +295,7 @@ impl CodexSession {
 }
 
 #[async_trait::async_trait]
-impl InteractiveSession for CodexSession {
+impl InteractiveSession for Arc<CodexSession> {
     fn handle(&self) -> ProviderSessionHandle {
         self.handle_state.lock().unwrap().clone()
     }
@@ -305,7 +305,12 @@ impl InteractiveSession for CodexSession {
     }
 
     async fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason> {
-        self.run_turn(&request.message)
+        // Run the synchronous codex child-process invocation on the
+        // blocking threadpool so the caller's async executor isn't
+        // stalled for the duration of the CLI turn.
+        let session = Arc::clone(self);
+        let message = request.message.clone();
+        blocking::unblock(move || session.run_turn(&message)).await
     }
 
     async fn interrupt(&self) -> Result<()> {
@@ -572,11 +577,12 @@ mod tests {
         let session = backend
             .start_session(&start_req)
             .expect("start_session should succeed");
-        let stop = session
-            .send_user_turn(&crate::session::UserTurnRequest {
+        let stop = futures::executor::block_on(session.send_user_turn(
+            &crate::session::UserTurnRequest {
                 message: "Reply with exactly: PROBE_OK".to_string(),
-            })
-            .expect("send_user_turn should succeed");
+            },
+        ))
+        .expect("send_user_turn should succeed");
 
         // Drain events
         let mut events = Vec::new();
@@ -617,11 +623,12 @@ mod tests {
         let resumed = backend
             .resume_session(&resume_req)
             .expect("resume_session should succeed");
-        let stop2 = resumed
-            .send_user_turn(&crate::session::UserTurnRequest {
+        let stop2 = futures::executor::block_on(resumed.send_user_turn(
+            &crate::session::UserTurnRequest {
                 message: "Reply with exactly: RESUME_OK".to_string(),
-            })
-            .expect("resumed send_user_turn should succeed");
+            },
+        ))
+        .expect("resumed send_user_turn should succeed");
 
         // Drain resume events
         let mut resume_events = Vec::new();

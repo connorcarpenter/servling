@@ -279,8 +279,11 @@ impl InteractiveSession for CopilotAcpSession {
             })
             .map_err(|_| anyhow!("Copilot ACP session worker is unavailable"))?;
 
+        // `.await` yields to the executor while the ACP worker thread
+        // processes the turn; the old `.blocking_recv()` would tie up
+        // the caller's executor worker for the full round-trip.
         reply_rx
-            .blocking_recv()
+            .await
             .map_err(|_| anyhow!("Copilot ACP session worker dropped turn response"))?
     }
 
@@ -291,7 +294,7 @@ impl InteractiveSession for CopilotAcpSession {
             .map_err(|_| anyhow!("Copilot ACP session worker is unavailable"))?;
 
         reply_rx
-            .blocking_recv()
+            .await
             .map_err(|_| anyhow!("Copilot ACP session worker dropped interrupt response"))?
     }
 
@@ -1101,9 +1104,10 @@ mod tests {
             .expect("session started");
         assert!(matches!(started, SessionEvent::SessionStarted { .. }));
 
-        let stop_reason = session
-            .send_user_turn(&UserTurnRequest::new("hello"))
-            .expect("turn succeeds");
+        let stop_reason = futures::executor::block_on(
+            session.send_user_turn(&UserTurnRequest::new("hello")),
+        )
+        .expect("turn succeeds");
         assert_eq!(stop_reason, SessionStopReason::EndTurn);
 
         let mut chunks = Vec::new();
@@ -1164,9 +1168,10 @@ mod tests {
         let _ = session.next_event(Duration::from_secs(1)).expect("started");
         let session_for_turn = session.clone();
         let join = thread::spawn(move || {
-            session_for_turn
-                .send_user_turn(&UserTurnRequest::new("cancel test"))
-                .expect("turn returns")
+            futures::executor::block_on(
+                session_for_turn.send_user_turn(&UserTurnRequest::new("cancel test")),
+            )
+            .expect("turn returns")
         });
 
         loop {
@@ -1182,10 +1187,12 @@ mod tests {
             }
         }
 
-        let second_turn_error = session.send_user_turn(&UserTurnRequest::new("second turn"));
+        let second_turn_error = futures::executor::block_on(
+            session.send_user_turn(&UserTurnRequest::new("second turn")),
+        );
         assert!(second_turn_error.is_err());
 
-        session.interrupt().expect("interrupt works");
+        futures::executor::block_on(session.interrupt()).expect("interrupt works");
         let stop_reason = join.join().expect("join");
         assert_eq!(stop_reason, SessionStopReason::EndTurn);
 
@@ -1331,11 +1338,12 @@ mod tests {
         );
 
         // Send a simple non-destructive turn that needs no tool use
-        let stop_reason = session
-            .send_user_turn(&UserTurnRequest::new(
+        let stop_reason = futures::executor::block_on(session.send_user_turn(
+            &UserTurnRequest::new(
                 "Reply with exactly: PROBE_OK — no tools, no preamble, nothing else.",
-            ))
-            .expect("turn completes");
+            ),
+        ))
+        .expect("turn completes");
 
         eprintln!("[probe] stop_reason: {stop_reason:?}");
         eprintln!("[probe] post-turn status: {:?}", session.status());
@@ -1410,8 +1418,10 @@ mod tests {
         // Spawn turn in separate thread (blocks until done)
         let session_for_turn = session.clone();
         let join = thread::spawn(move || {
-            session_for_turn.send_user_turn(&UserTurnRequest::new(
-                "Count slowly from 1 to 500, one number per line, no other text.",
+            futures::executor::block_on(session_for_turn.send_user_turn(
+                &UserTurnRequest::new(
+                    "Count slowly from 1 to 500, one number per line, no other text.",
+                ),
             ))
         });
 
@@ -1435,7 +1445,8 @@ mod tests {
             }
         }
         eprintln!("[probe/interrupt] Running confirmed; interrupting...");
-        session.interrupt().expect("interrupt issued without error");
+        futures::executor::block_on(session.interrupt())
+            .expect("interrupt issued without error");
 
         // Collect post-interrupt events until turn thread finishes
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
