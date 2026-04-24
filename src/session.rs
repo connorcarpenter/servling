@@ -220,11 +220,20 @@ pub enum SessionEvent {
     SessionEnded,
 }
 
+#[async_trait::async_trait]
 pub trait InteractiveSession: Send + Sync {
     fn handle(&self) -> ProviderSessionHandle;
     fn status(&self) -> SessionRuntimeStatus;
-    fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason>;
-    fn interrupt(&self) -> Result<()>;
+    /// Run one user turn against the backing provider.
+    ///
+    /// Async to satisfy the workspace invariant documented in
+    /// brood/_AGENTS/SYNC_ASYNC_HANDLER_RULE.md: the fake backend's
+    /// `__hold_open__` branches can now await an interrupt signal
+    /// without blocking the calling thread. Real backends that still
+    /// block on child-process IO wrap that work on their own worker
+    /// thread; the awaited reply is a cheap oneshot/channel recv.
+    async fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason>;
+    async fn interrupt(&self) -> Result<()>;
     fn next_event(&self, timeout: Duration) -> Result<Option<SessionEvent>>;
 }
 

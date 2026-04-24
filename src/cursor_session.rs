@@ -288,6 +288,7 @@ impl CursorSession {
     }
 }
 
+#[async_trait::async_trait]
 impl InteractiveSession for CursorSession {
     fn handle(&self) -> ProviderSessionHandle {
         self.handle_state.lock().unwrap().clone()
@@ -297,11 +298,11 @@ impl InteractiveSession for CursorSession {
         self.handle_state.lock().unwrap().status.clone()
     }
 
-    fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason> {
+    async fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason> {
         self.run_turn(&request.message)
     }
 
-    fn interrupt(&self) -> Result<()> {
+    async fn interrupt(&self) -> Result<()> {
         bail!("cursor session backend does not support live interrupt")
     }
 

@@ -252,6 +252,7 @@ impl Drop for CopilotAcpSession {
     }
 }
 
+#[async_trait::async_trait]
 impl InteractiveSession for CopilotAcpSession {
     fn handle(&self) -> ProviderSessionHandle {
         self.handle_state.lock().unwrap().clone()
@@ -261,7 +262,7 @@ impl InteractiveSession for CopilotAcpSession {
         self.handle_state.lock().unwrap().status.clone()
     }
 
-    fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason> {
+    async fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason> {
         let status = self.status();
         if matches!(
             status,
@@ -283,7 +284,7 @@ impl InteractiveSession for CopilotAcpSession {
             .map_err(|_| anyhow!("Copilot ACP session worker dropped turn response"))?
     }
 
-    fn interrupt(&self) -> Result<()> {
+    async fn interrupt(&self) -> Result<()> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.command_tx
             .send(WorkerCommand::Interrupt { reply: reply_tx })

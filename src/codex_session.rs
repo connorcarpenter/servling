@@ -294,6 +294,7 @@ impl CodexSession {
     }
 }
 
+#[async_trait::async_trait]
 impl InteractiveSession for CodexSession {
     fn handle(&self) -> ProviderSessionHandle {
         self.handle_state.lock().unwrap().clone()
@@ -303,11 +304,11 @@ impl InteractiveSession for CodexSession {
         self.handle_state.lock().unwrap().status.clone()
     }
 
-    fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason> {
+    async fn send_user_turn(&self, request: &UserTurnRequest) -> Result<SessionStopReason> {
         self.run_turn(&request.message)
     }
 
-    fn interrupt(&self) -> Result<()> {
+    async fn interrupt(&self) -> Result<()> {
         bail!("codex session backend does not support live interrupt")
     }
 
