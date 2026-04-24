@@ -437,9 +437,13 @@ mod tests {
             None,
         );
 
-        assert!(expanded.contains("\"enabled\":true"));
+        // Sandbox is intentionally disabled (see `build_claude_settings`
+        // comment); the `--permission-mode bypassPermissions` flag in the
+        // command template covers the approval model. Filesystem scope is
+        // enforced via `additionalDirectories`. Assertions were updated in
+        // tandem with the sandbox-disable fix in commit dd621b3.
+        assert!(expanded.contains("\"enabled\":false"));
         assert!(expanded.contains("\"defaultMode\":\"acceptEdits\""));
-        assert!(expanded.contains("\"allowWrite\":[\"//repo/candidate\",\"//repo/generated\"]"));
         assert!(expanded.contains("\"additionalDirectories\":[\"//repo/generated\"]"));
     }
 
