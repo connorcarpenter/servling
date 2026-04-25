@@ -2,6 +2,7 @@
 
 pub mod backend_policy;
 pub mod backend_registry;
+pub mod profile_extensions;
 pub mod claude_agent;
 pub mod claude_session;
 pub mod cli_backend;
@@ -33,6 +34,7 @@ pub use crate::core::{
     SessionAffinity, SessionCapabilities, SessionControlCapabilities, SessionEventCapabilities,
     SessionResumeKind, TransportKind, TurnRunner,
 };
+pub use profile_extensions::{BackendSessionId, SessionError};
 pub use claude_agent::ClaudeAgent;
 pub use claude_session::ClaudeSessionBackend;
 pub use cli_backend::CliBackend;
