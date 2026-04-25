@@ -23,6 +23,8 @@ pub enum TransportKind {
     CliResumableTurns,
     CliJsonRpc,
     CompositeBatchFallback,
+    /// In-process Rust: workroach_agent_servling drives workroach_agent_core directly.
+    WorkroachAgentInProcess,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
