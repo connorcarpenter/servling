@@ -72,6 +72,9 @@ pub struct ProviderSessionHandle {
     pub provider_session_ref: Option<String>,
     pub capabilities: ProviderCapabilities,
     pub status: SessionRuntimeStatus,
+    /// The filesystem root the session operates in, if known.
+    /// `None` for backends that don't track working directory (e.g. stateless CLI wrappers).
+    pub working_root: Option<std::path::PathBuf>,
 }
 
 impl ProviderSessionHandle {
@@ -89,7 +92,13 @@ impl ProviderSessionHandle {
             provider_session_ref,
             capabilities,
             status,
+            working_root: None,
         }
+    }
+
+    pub fn with_working_root(mut self, root: impl Into<std::path::PathBuf>) -> Self {
+        self.working_root = Some(root.into());
+        self
     }
 }
 

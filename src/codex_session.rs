@@ -127,6 +127,7 @@ impl CodexSession {
         provider_session_ref: Option<String>,
     ) -> Self {
         let status = SessionRuntimeStatus::Ready;
+        let root = working_dir.clone();
         Self {
             command,
             working_dir,
@@ -139,7 +140,7 @@ impl CodexSession {
                 provider_session_ref,
                 CodexSessionBackend::capabilities(),
                 status,
-            )),
+            ).with_working_root(root)),
             queued_events: Mutex::new(VecDeque::new()),
         }
     }

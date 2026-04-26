@@ -175,6 +175,7 @@ impl ClaudeSession {
         model: Option<String>,
         provider_session_ref: Option<String>,
     ) -> Self {
+        let root = working_dir.clone();
         Self {
             command,
             working_dir,
@@ -185,7 +186,7 @@ impl ClaudeSession {
                 provider_session_ref,
                 ClaudeSessionBackend::capabilities(),
                 SessionRuntimeStatus::Ready,
-            )),
+            ).with_working_root(root)),
             queued_events: Mutex::new(VecDeque::new()),
         }
     }

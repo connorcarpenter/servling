@@ -118,7 +118,7 @@ impl CopilotAcpBackend {
             load_session_ref.map(str::to_string),
             ProviderCapabilities::session_jsonrpc(),
             SessionRuntimeStatus::Starting,
-        )));
+        ).with_working_root(working_dir)));
 
         let initial_working_dir = working_dir.to_path_buf();
         let state_for_thread = handle_state.clone();
@@ -396,7 +396,7 @@ fn run_worker(
             Some(session_id.0.to_string()),
             ProviderCapabilities::session_jsonrpc(),
             SessionRuntimeStatus::Ready,
-        );
+        ).with_working_root(working_dir.clone());
         *handle_state.lock().unwrap() = started_handle.clone();
         let _ = event_tx.send(SessionEvent::SessionStarted {
             provider_session_ref: started_handle.provider_session_ref.clone(),

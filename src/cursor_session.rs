@@ -99,6 +99,7 @@ impl CursorSession {
         provider_session_ref: Option<String>,
     ) -> Self {
         let status = SessionRuntimeStatus::Ready;
+        let root = working_dir.clone();
         let mut events = VecDeque::new();
         if let Some(ref r) = provider_session_ref {
             events.push_back(SessionEvent::SessionStarted {
@@ -117,7 +118,7 @@ impl CursorSession {
                 provider_session_ref,
                 CursorSessionBackend::capabilities(),
                 status,
-            )),
+            ).with_working_root(root)),
             queued_events: Mutex::new(events),
         }
     }
