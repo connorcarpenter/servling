@@ -438,17 +438,38 @@ pub struct RunnerInvocation {
 }
 
 /// Helper to normalize a requested model name for a specific backend.
+///
+/// Policy files may use tier aliases (`haiku`, `sonnet`, `opus`) that map to
+/// the provider-appropriate model for that capability tier. Switching
+/// `preferred_backend` between `claude`, `codex`, and `copilot` while keeping
+/// `"model": "sonnet"` always selects the Sonnet-class model for that provider.
 pub fn normalize_model(backend_name: &str, model: Option<String>) -> Option<String> {
     let model = model?;
-    // Claude models pass through to Claude backend
-    if backend_name == "claude" || backend_name == "cursor" {
-        return Some(model);
+    match backend_name {
+        // Claude and Cursor accept tier names and full model IDs as-is.
+        "claude" | "cursor" => Some(model),
+        // Codex expands tier aliases to the ChatGPT-account-compatible equivalent.
+        "codex" => Some(expand_codex_tier(&model)),
+        // Copilot has its own expansion in copilot_agent.rs; pass through here.
+        _ => {
+            if is_claude_tier(&model) {
+                None
+            } else {
+                Some(model)
+            }
+        }
     }
-    // Generic tiers are stripped for non-claude backends unless they match
-    if is_claude_tier(&model) {
-        return None;
+}
+
+/// Map Claude tier aliases to the Codex CLI model for ChatGPT accounts.
+///
+/// The Codex CLI's native model for ChatGPT Plus/Pro accounts is `gpt-5.3-codex`.
+/// Use medium reasoning effort (policy field) for sonnet-class work.
+fn expand_codex_tier(model: &str) -> String {
+    match model.trim().to_lowercase().as_str() {
+        "haiku" | "sonnet" | "opus" => "gpt-5.3-codex".to_string(),
+        _ => model.to_string(),
     }
-    Some(model)
 }
 
 pub fn normalize_reasoning_effort(reasoning_effort: Option<String>) -> Option<String> {
