@@ -82,7 +82,9 @@ impl std::fmt::Display for SessionError {
         match self {
             Self::UnsupportedCapability { detail } => write!(f, "unsupported capability: {detail}"),
             Self::InvalidSessionId { detail } => write!(f, "invalid session id: {detail}"),
-            Self::InvalidStateTransition { detail } => write!(f, "invalid state transition: {detail}"),
+            Self::InvalidStateTransition { detail } => {
+                write!(f, "invalid state transition: {detail}")
+            }
             Self::ProviderTransport { detail } => write!(f, "provider transport error: {detail}"),
             Self::PersistenceFailure { detail } => write!(f, "persistence failure: {detail}"),
             Self::UserCancelled { detail } => write!(f, "user cancelled: {detail}"),

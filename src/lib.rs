@@ -2,7 +2,6 @@
 
 pub mod backend_policy;
 pub mod backend_registry;
-pub mod profile_extensions;
 pub mod claude_agent;
 pub mod claude_session;
 pub mod cli_backend;
@@ -14,6 +13,7 @@ pub mod copilot_agent;
 pub mod core;
 pub mod cursor_agent;
 pub mod cursor_session;
+pub mod profile_extensions;
 pub mod runner;
 pub mod session;
 pub mod token_usage;
@@ -34,7 +34,6 @@ pub use crate::core::{
     SessionAffinity, SessionCapabilities, SessionControlCapabilities, SessionEventCapabilities,
     SessionResumeKind, TransportKind, TurnRunner,
 };
-pub use profile_extensions::{BackendSessionId, SessionError};
 pub use claude_agent::ClaudeAgent;
 pub use claude_session::ClaudeSessionBackend;
 pub use cli_backend::CliBackend;
@@ -48,6 +47,7 @@ pub use copilot_acp::CopilotAcpBackend;
 pub use copilot_agent::CopilotAgent;
 pub use cursor_agent::CursorAgent;
 pub use cursor_session::CursorSessionBackend;
+pub use profile_extensions::{BackendSessionId, SessionError};
 pub use runner::{run_cli_runner, CliRunnerConfig, CliRunnerOutcome};
 pub use session::{
     ProviderSessionHandle, SessionBackend, SessionBackendBox, SessionEvent, SessionResumeRequest,

@@ -180,13 +180,16 @@ impl ClaudeSession {
             command,
             working_dir,
             model,
-            handle_state: Mutex::new(ProviderSessionHandle::new(
-                ProviderKind::Claude,
-                TransportKind::CliResumableTurns,
-                provider_session_ref,
-                ClaudeSessionBackend::capabilities(),
-                SessionRuntimeStatus::Ready,
-            ).with_working_root(root)),
+            handle_state: Mutex::new(
+                ProviderSessionHandle::new(
+                    ProviderKind::Claude,
+                    TransportKind::CliResumableTurns,
+                    provider_session_ref,
+                    ClaudeSessionBackend::capabilities(),
+                    SessionRuntimeStatus::Ready,
+                )
+                .with_working_root(root),
+            ),
             queued_events: Mutex::new(VecDeque::new()),
         }
     }
@@ -262,9 +265,7 @@ impl ClaudeSession {
                 // init event — extract and store the session ID
                 Some("system") => {
                     if value.get("subtype").and_then(Value::as_str) == Some("init") {
-                        if let Some(session_id) =
-                            value.get("session_id").and_then(Value::as_str)
-                        {
+                        if let Some(session_id) = value.get("session_id").and_then(Value::as_str) {
                             let mut handle = self.handle_state.lock().unwrap();
                             if handle.provider_session_ref.as_deref() != Some(session_id) {
                                 handle.provider_session_ref = Some(session_id.to_string());
@@ -519,13 +520,7 @@ mod tests {
     #[test]
     fn model_flag_is_passed_when_set() {
         let working_dir = PathBuf::from("/tmp/ws");
-        let cmd = build_turn_command(
-            None,
-            None,
-            &working_dir,
-            Some("claude-sonnet-4-5"),
-            "hello",
-        );
+        let cmd = build_turn_command(None, None, &working_dir, Some("claude-sonnet-4-5"), "hello");
         let args: Vec<_> = cmd.get_args().collect();
         let args_str: Vec<_> = args.iter().map(|a| a.to_string_lossy()).collect();
         assert!(
@@ -577,7 +572,15 @@ mod tests {
 
         let content: Vec<_> = events
             .iter()
-            .filter(|e| matches!(e, SessionEvent::ContentChunk { kind: SessionContentKind::Assistant, .. }))
+            .filter(|e| {
+                matches!(
+                    e,
+                    SessionEvent::ContentChunk {
+                        kind: SessionContentKind::Assistant,
+                        ..
+                    }
+                )
+            })
             .collect();
         assert_eq!(content.len(), 1);
         if let SessionEvent::ContentChunk { text, .. } = &content[0] {
@@ -589,7 +592,10 @@ mod tests {
     fn backend_metadata_is_claude_resumable_turns() {
         let backend = ClaudeSessionBackend::new(None);
         assert_eq!(backend.metadata().provider_kind, ProviderKind::Claude);
-        assert_eq!(backend.metadata().transport_kind, TransportKind::CliResumableTurns);
+        assert_eq!(
+            backend.metadata().transport_kind,
+            TransportKind::CliResumableTurns
+        );
         assert!(backend.metadata().capabilities.supports_resume());
     }
 
@@ -615,12 +621,11 @@ mod tests {
             reasoning_effort: None,
         };
         let session = backend.start_session(&start_req).unwrap();
-        let stop = futures::executor::block_on(session.send_user_turn(
-            &crate::session::UserTurnRequest {
+        let stop =
+            futures::executor::block_on(session.send_user_turn(&crate::session::UserTurnRequest {
                 message: "Reply with exactly: PROBE_OK".to_string(),
-            },
-        ))
-        .unwrap();
+            }))
+            .unwrap();
 
         let mut events = Vec::new();
         while let Ok(Some(ev)) = session.next_event(Duration::from_millis(100)) {
@@ -628,13 +633,22 @@ mod tests {
         }
 
         let handle = session.handle();
-        let session_ref = handle.provider_session_ref.clone().expect("must have session_ref");
+        let session_ref = handle
+            .provider_session_ref
+            .clone()
+            .expect("must have session_ref");
         println!("session_ref: {session_ref}");
         println!("stop: {stop:?}");
         println!("events: {events:#?}");
 
         let has_content = events.iter().any(|e| {
-            matches!(e, SessionEvent::ContentChunk { kind: SessionContentKind::Assistant, .. })
+            matches!(
+                e,
+                SessionEvent::ContentChunk {
+                    kind: SessionContentKind::Assistant,
+                    ..
+                }
+            )
         });
         assert!(has_content, "expected assistant content chunk");
         assert!(matches!(stop, crate::session::SessionStopReason::EndTurn));
@@ -648,12 +662,11 @@ mod tests {
             provider_session_ref: session_ref.clone(),
         };
         let resumed = backend.resume_session(&resume_req).unwrap();
-        let stop2 = futures::executor::block_on(resumed.send_user_turn(
-            &crate::session::UserTurnRequest {
+        let stop2 =
+            futures::executor::block_on(resumed.send_user_turn(&crate::session::UserTurnRequest {
                 message: "Reply with exactly: RESUME_OK".to_string(),
-            },
-        ))
-        .unwrap();
+            }))
+            .unwrap();
 
         let mut resume_events = Vec::new();
         while let Ok(Some(ev)) = resumed.next_event(Duration::from_millis(100)) {

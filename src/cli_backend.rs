@@ -83,11 +83,7 @@ impl CliBackend {
         )
     }
 
-    pub fn prepare_temp_files(
-        &self,
-        prompt: &str,
-        temp_dir: &Path,
-    ) -> Result<TempFilePair> {
+    pub fn prepare_temp_files(&self, prompt: &str, temp_dir: &Path) -> Result<TempFilePair> {
         let mut temp_input = None;
         let mut input_path = None;
         if self.command_template.contains("{input_file}")
