@@ -93,11 +93,7 @@ impl TurnRunner for CopilotAgent {
             &writable_roots,
             request.input_file.as_deref(),
             None,
-            request
-                .model
-                .as_deref()
-                .map(expand_model_name)
-                .as_deref(),
+            request.model.as_deref().map(expand_model_name).as_deref(),
             request.reasoning_effort.as_deref(),
         );
         let parts: Vec<String> = cmd

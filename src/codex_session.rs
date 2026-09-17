@@ -134,13 +134,16 @@ impl CodexSession {
             writable_roots,
             model,
             reasoning_effort,
-            handle_state: Mutex::new(ProviderSessionHandle::new(
-                ProviderKind::Codex,
-                TransportKind::CliResumableTurns,
-                provider_session_ref,
-                CodexSessionBackend::capabilities(),
-                status,
-            ).with_working_root(root)),
+            handle_state: Mutex::new(
+                ProviderSessionHandle::new(
+                    ProviderKind::Codex,
+                    TransportKind::CliResumableTurns,
+                    provider_session_ref,
+                    CodexSessionBackend::capabilities(),
+                    status,
+                )
+                .with_working_root(root),
+            ),
             queued_events: Mutex::new(VecDeque::new()),
         }
     }
@@ -578,12 +581,11 @@ mod tests {
         let session = backend
             .start_session(&start_req)
             .expect("start_session should succeed");
-        let stop = futures::executor::block_on(session.send_user_turn(
-            &crate::session::UserTurnRequest {
+        let stop =
+            futures::executor::block_on(session.send_user_turn(&crate::session::UserTurnRequest {
                 message: "Reply with exactly: PROBE_OK".to_string(),
-            },
-        ))
-        .expect("send_user_turn should succeed");
+            }))
+            .expect("send_user_turn should succeed");
 
         // Drain events
         let mut events = Vec::new();
@@ -624,12 +626,11 @@ mod tests {
         let resumed = backend
             .resume_session(&resume_req)
             .expect("resume_session should succeed");
-        let stop2 = futures::executor::block_on(resumed.send_user_turn(
-            &crate::session::UserTurnRequest {
+        let stop2 =
+            futures::executor::block_on(resumed.send_user_turn(&crate::session::UserTurnRequest {
                 message: "Reply with exactly: RESUME_OK".to_string(),
-            },
-        ))
-        .expect("resumed send_user_turn should succeed");
+            }))
+            .expect("resumed send_user_turn should succeed");
 
         // Drain resume events
         let mut resume_events = Vec::new();

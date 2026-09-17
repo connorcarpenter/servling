@@ -112,13 +112,16 @@ impl CopilotAcpBackend {
         let (event_tx, event_rx) = mpsc::channel();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let (command_tx, command_rx) = tokio_mpsc::unbounded_channel();
-        let handle_state = Arc::new(Mutex::new(ProviderSessionHandle::new(
-            ProviderKind::Copilot,
-            TransportKind::CliJsonRpc,
-            load_session_ref.map(str::to_string),
-            ProviderCapabilities::session_jsonrpc(),
-            SessionRuntimeStatus::Starting,
-        ).with_working_root(working_dir)));
+        let handle_state = Arc::new(Mutex::new(
+            ProviderSessionHandle::new(
+                ProviderKind::Copilot,
+                TransportKind::CliJsonRpc,
+                load_session_ref.map(str::to_string),
+                ProviderCapabilities::session_jsonrpc(),
+                SessionRuntimeStatus::Starting,
+            )
+            .with_working_root(working_dir),
+        ));
 
         let initial_working_dir = working_dir.to_path_buf();
         let state_for_thread = handle_state.clone();
@@ -1108,10 +1111,9 @@ mod tests {
             .expect("session started");
         assert!(matches!(started, SessionEvent::SessionStarted { .. }));
 
-        let stop_reason = futures::executor::block_on(
-            session.send_user_turn(&UserTurnRequest::new("hello")),
-        )
-        .expect("turn succeeds");
+        let stop_reason =
+            futures::executor::block_on(session.send_user_turn(&UserTurnRequest::new("hello")))
+                .expect("turn succeeds");
         assert_eq!(stop_reason, SessionStopReason::EndTurn);
 
         let mut chunks = Vec::new();
@@ -1181,8 +1183,11 @@ mod tests {
                 .expect("event read")
                 .expect("event");
             if let SessionEvent::StatusChanged {
-                    status: SessionRuntimeStatus::Running,
-                } = event { break }
+                status: SessionRuntimeStatus::Running,
+            } = event
+            {
+                break;
+            }
         }
 
         let second_turn_error = futures::executor::block_on(
@@ -1336,12 +1341,11 @@ mod tests {
         );
 
         // Send a simple non-destructive turn that needs no tool use
-        let stop_reason = futures::executor::block_on(session.send_user_turn(
-            &UserTurnRequest::new(
+        let stop_reason =
+            futures::executor::block_on(session.send_user_turn(&UserTurnRequest::new(
                 "Reply with exactly: PROBE_OK — no tools, no preamble, nothing else.",
-            ),
-        ))
-        .expect("turn completes");
+            )))
+            .expect("turn completes");
 
         eprintln!("[probe] stop_reason: {stop_reason:?}");
         eprintln!("[probe] post-turn status: {:?}", session.status());
@@ -1411,11 +1415,9 @@ mod tests {
         // Spawn turn in separate thread (blocks until done)
         let session_for_turn = session.clone();
         let join = thread::spawn(move || {
-            futures::executor::block_on(session_for_turn.send_user_turn(
-                &UserTurnRequest::new(
-                    "Count slowly from 1 to 500, one number per line, no other text.",
-                ),
-            ))
+            futures::executor::block_on(session_for_turn.send_user_turn(&UserTurnRequest::new(
+                "Count slowly from 1 to 500, one number per line, no other text.",
+            )))
         });
 
         // Wait for Running status before interrupting
@@ -1438,8 +1440,7 @@ mod tests {
             }
         }
         eprintln!("[probe/interrupt] Running confirmed; interrupting...");
-        futures::executor::block_on(session.interrupt())
-            .expect("interrupt issued without error");
+        futures::executor::block_on(session.interrupt()).expect("interrupt issued without error");
 
         // Collect post-interrupt events until turn thread finishes
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
